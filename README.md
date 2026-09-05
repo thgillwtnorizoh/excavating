@@ -27,7 +27,8 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 - [`05_arc_path.cpp`](05_arc_path.cpp) — native Arc easing enum and formulas, cubic `b` construction, sampled path representation, and gameplay path consumption.
 - [`06_arctaps.cpp`](06_arctaps.cpp) — ArcTap placement on the parent Arc, spatial candidate filtering, inherited point-note judgement, and parent Arc judgement modes.
 - [`07_flick_notes.cpp`](07_flick_notes.cpp) — live Flick processing, spatial gate, directional displacement gesture, timing gates, and success/LOST flow.
+- [`08_lane_geometry.cpp`](08_lane_geometry.cpp) — `NotePosition` modes, chart-lane/internal-ID conversion, six reserved lane positions, lane-centre spacing, touch-to-lane mapping, and shared Tap/Hold lane filtering.
 
 ## Next excavation area
 
-Ground/lane gameplay geometry: lane identifiers, touch-to-lane mapping, lane coordinates/boundaries, and the spatial filtering used by Tap and Hold. This is intended to establish the baseline needed before reconstructing `enwidenlane`.
+`enwidenlanes`: trace the chart instruction into runtime state and compare it against the established four-lane baseline, including activation of the two reserved outer lane IDs, transition timing, input geometry, visual track widening where gameplay-relevant, note eligibility during the transition, and restoration of ordinary four-lane play.
