@@ -20,5 +20,14 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 
 ## Sections
 
-- [`01_recollection_rate.cpp`](01_recollection_rate.cpp) — fundamental Recollection Rate model, ordinary gauges, judgement gain/loss, clear classification.
-- [`02_note_fundamentals.cpp`](02_note_fundamentals.cpp) — runtime note hierarchy, point-note timing windows and resolution, ScoreState judgement flow, and the common LogicLongNoteBase tick/event model.
+- [`01_recollection_rate.cpp`](01_recollection_rate.cpp) — fundamental Recollection Rate model, ordinary gauges, judgement gain/loss, and clear classification.
+- [`02_note_fundamentals.cpp`](02_note_fundamentals.cpp) — runtime note hierarchy, point-note timing windows and resolution, ScoreState judgement flow, and common `LogicLongNoteBase` tick/event machinery.
+- [`03_long_notes.cpp`](03_long_notes.cpp) — `LogicHoldNote` touch/contact state, long-event success/LOST processing, and release/re-press behaviour.
+- [`04_arc_contact.cpp`](04_arc_contact.cpp) — `LogicArcNote` body contact validity, touch ownership/continuity, trace/non-judged body behaviour, and the bridge into common long-note events.
+- [`05_arc_path.cpp`](05_arc_path.cpp) — native Arc easing enum and formulas, cubic `b` construction, sampled path representation, and gameplay path consumption.
+- [`06_arctaps.cpp`](06_arctaps.cpp) — ArcTap placement on the parent Arc, spatial candidate filtering, inherited point-note judgement, and parent Arc judgement modes.
+- [`07_flick_notes.cpp`](07_flick_notes.cpp) — live Flick processing, spatial gate, directional displacement gesture, timing gates, and success/LOST flow.
+
+## Next excavation area
+
+Ground/lane gameplay geometry: lane identifiers, touch-to-lane mapping, lane coordinates/boundaries, and the spatial filtering used by Tap and Hold. This is intended to establish the baseline needed before reconstructing `enwidenlane`.
