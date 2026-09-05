@@ -14,7 +14,7 @@ This repository is **not recovered source code**. It is a field notebook: after 
 
 1. Recollection Rate / gauge fundamentals.
 2. Special in-play effects triggered by special conditions. Unlock requirements and challenge progression are out of scope unless directly needed.
-3. Core gameplay fundamentals: notes, long-note ticks, arcs, rendering, judgement/input flow, lane geometry, `enwidenlanes`, and closely related chart/gameplay mechanics.
+3. Core gameplay fundamentals: notes, long-note ticks, arcs, rendering, judgement/input flow, lane geometry, `enwidenlanes`, timinggroups, gameplay-space/camera behaviour, and closely related chart mechanics.
 
 Anything outside those goals is deferred until deliberately promoted into scope.
 
@@ -29,7 +29,9 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 - [`07_flick_notes.cpp`](07_flick_notes.cpp) — live Flick processing, spatial gate, directional displacement gesture, timing gates, and success/LOST flow.
 - [`08_lane_geometry.cpp`](08_lane_geometry.cpp) — `NotePosition` modes, chart-lane/internal-ID conversion, six reserved lane positions, lane-centre spacing, touch-to-lane mapping, and shared Tap/Hold lane filtering.
 - [`09_enwidenlanes.cpp`](09_enwidenlanes.cpp) — `scenecontrol` widening types, timed six-lane activation, fixed outer lane slots, lane-widen progress, and the related 1.0→1.5 `enwidencamera` transition.
+- [`10_timinggroups.cpp`](10_timinggroups.cpp) — `LogicTimingEvent`, per-note active timing context, timinggroup gameplay flags, the shared judgement clock, and the conditional fallback `-3000 ms` pre-roll path.
+- [`11_gameplay_space.cpp`](11_gameplay_space.cpp) — screen-to-world touch unprojection, the Y=0 floor plane, camera-aware floor/sky input geometry, concrete Arc/ArcTap hit extents, and spatial effects of `enwidencamera`.
 
 ## Next excavation area
 
-Gameplay timing and timinggroups, kept deliberately narrow: identify the timing state that produces effective gameplay time, separate judgement time from visual/scroll time, resolve the recurring conditional ±3000 ms correction, and identify only timinggroup flags that materially alter gameplay. Avoid mapping the entire chart parser or unrelated visual flags.
+Arc refinements now that the common geometry is known: resolve different-finger ownership transitions, the `min(4*tickInterval,1000)` tracker window, Arc `+0xE0` / `+0x170`, and remaining contact-tracker state. Keep Flick AABB construction, Arc sampled-path plumbing, and timinggroup angle presentation as explicit later refinements rather than blocking the next core slice.
