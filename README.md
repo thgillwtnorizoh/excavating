@@ -31,7 +31,8 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 - [`09_enwidenlanes.cpp`](09_enwidenlanes.cpp) — `scenecontrol` widening types, timed six-lane activation, fixed outer lane slots, lane-widen progress, and the related 1.0→1.5 `enwidencamera` transition.
 - [`10_timinggroups.cpp`](10_timinggroups.cpp) — `LogicTimingEvent`, per-note active timing context, timinggroup gameplay flags, the shared judgement clock, and the conditional fallback `-3000 ms` pre-roll path.
 - [`11_gameplay_space.cpp`](11_gameplay_space.cpp) — screen-to-world touch unprojection, the Y=0 floor plane, camera-aware floor/sky input geometry, concrete Arc/ArcTap hit extents, and spatial effects of `enwidencamera`.
+- [`12_arc_contact_refinements.cpp`](12_arc_contact_refinements.cpp) — Arc touch-ID ownership, release re-acquisition lockout, nearby-Arc ownership relaxation, special tracker bypass, `LogicArcGroup`, connected-segment grouping, and direction-changing seam behaviour.
 
 ## Next excavation area
 
-Arc refinements now that the common geometry is known: resolve different-finger ownership transitions, the `min(4*tickInterval,1000)` tracker window, Arc `+0xE0` / `+0x170`, and remaining contact-tracker state. Keep Flick AABB construction, Arc sampled-path plumbing, and timinggroup angle presentation as explicit later refinements rather than blocking the next core slice.
+Arc sampled-path refinements: determine the distinct roles of the `LogicArcNote +0xE8` and `+0x100` sampled paths, the semantic purpose of sampling multiplier `+0x118`, and the related-object vector around `+0x138` that can extend the path horizon. Keep Arc mode `+0xA4 == 2`, Flick AABB construction, and timinggroup angle presentation as explicit later refinements rather than expanding the next slice.
