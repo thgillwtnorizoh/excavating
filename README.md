@@ -14,7 +14,7 @@ This repository is **not recovered source code**. It is a field notebook: after 
 
 1. Recollection Rate / gauge fundamentals.
 2. Special in-play effects triggered by special conditions. Unlock requirements and challenge progression are out of scope unless directly needed.
-3. Core gameplay fundamentals: notes, long-note ticks, arcs, rendering, judgement/input flow, lane geometry, `enwidenlane`, and closely related chart/gameplay mechanics.
+3. Core gameplay fundamentals: notes, long-note ticks, arcs, rendering, judgement/input flow, lane geometry, `enwidenlanes`, and closely related chart/gameplay mechanics.
 
 Anything outside those goals is deferred until deliberately promoted into scope.
 
@@ -28,7 +28,8 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 - [`06_arctaps.cpp`](06_arctaps.cpp) — ArcTap placement on the parent Arc, spatial candidate filtering, inherited point-note judgement, and parent Arc judgement modes.
 - [`07_flick_notes.cpp`](07_flick_notes.cpp) — live Flick processing, spatial gate, directional displacement gesture, timing gates, and success/LOST flow.
 - [`08_lane_geometry.cpp`](08_lane_geometry.cpp) — `NotePosition` modes, chart-lane/internal-ID conversion, six reserved lane positions, lane-centre spacing, touch-to-lane mapping, and shared Tap/Hold lane filtering.
+- [`09_enwidenlanes.cpp`](09_enwidenlanes.cpp) — `scenecontrol` widening types, timed six-lane activation, fixed outer lane slots, lane-widen progress, and the related 1.0→1.5 `enwidencamera` transition.
 
 ## Next excavation area
 
-`enwidenlanes`: trace the chart instruction into runtime state and compare it against the established four-lane baseline, including activation of the two reserved outer lane IDs, transition timing, input geometry, visual track widening where gameplay-relevant, note eligibility during the transition, and restoration of ordinary four-lane play.
+Gameplay timing and timinggroups, kept deliberately narrow: identify the timing state that produces effective gameplay time, separate judgement time from visual/scroll time, resolve the recurring conditional ±3000 ms correction, and identify only timinggroup flags that materially alter gameplay. Avoid mapping the entire chart parser or unrelated visual flags.
