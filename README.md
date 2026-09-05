@@ -21,3 +21,4 @@ Anything outside those goals is deferred until deliberately promoted into scope.
 ## Sections
 
 - [`01_recollection_rate.cpp`](01_recollection_rate.cpp) — fundamental Recollection Rate model, ordinary gauges, judgement gain/loss, clear classification.
+- [`02_note_fundamentals.cpp`](02_note_fundamentals.cpp) — runtime note hierarchy, point-note timing windows and resolution, ScoreState judgement flow, and the common LogicLongNoteBase tick/event model.
