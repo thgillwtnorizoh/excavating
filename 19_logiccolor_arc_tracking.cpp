@@ -1,8 +1,8 @@
 /*
  * Arcaea excavation notebook
- * Section 19: LogicColor, Arc touch ownership, and Your Best Nightmare exception
+ * Section 19: LogicColor and Your Best Nightmare green-Arc mechanics
  *
- * STATUS: LogicColor / Arc ownership refinement slice complete
+ * STATUS: LogicColor / YBN green-Arc refinement slice complete
  * STYLE: C++-like pseudocode, NOT recovered source code
  *
  * Evidence terminology:
@@ -10,25 +10,35 @@
  *   RECONSTRUCTED = readable representation assembled from confirmed behaviour.
  *   UNRESOLVED    = exact semantic name/purpose is not yet proved.
  *
- * Scope of this section:
- *   - identify Section 12's reconstructed ArcTouchTracker as native LogicColor
- *   - refine the Arc ownership model from per-Arc tracker state to shared
- *     per-colour/channel LogicColor state
- *   - resolve the old `mode == 3` special case as LogicColor channel ID 3
- *   - separate mechanical re-acquisition lockout from red ownership-warning
- *     presentation state
- *   - identify the external condition which enables LogicArcNote +0x170
- *   - prove that the condition is specific to `yourbestnightmare`, ratingClass 3
- *   - reconstruct that chart's special LogicColor channel folding and colour-2
- *     ownership bypass
+ * IMPORTANT CORRECTION TO THE FIRST VERSION OF THIS SECTION:
+ *   LogicArcNote +0x170 is NOT merely an ownership-tracker bypass.
+ *
+ *   Its contact-hook effect is indeed to bypass LogicColor touch ownership, but
+ *   the same flag is also consumed by two LogicArcNote judgement virtuals and by
+ *   SpecialSceneYourBestNightmare. It is therefore better modelled as the
+ *   runtime capability flag for the YBN special green-Arc subsystem.
+ *
+ * Scope:
+ *   - identify Section 12's ArcTouchTracker as native LogicColor
+ *   - resolve LogicColor channel identity and shared per-colour ownership
+ *   - resolve channel ID 3's ownership-bypass behaviour
+ *   - separate mechanical re-acquisition lockout from red rejection feedback
+ *   - identify the exact YBN + ratingClass-3 construction context
+ *   - reconstruct YBN colour-channel folding
+ *   - resolve all three LogicArcNote behaviours altered by +0x170
+ *   - resolve the SpecialSceneYourBestNightmare +5 RR success path
+ *   - clearly separate generic green colour 2 from YBN's special use of it
  *
  * Deliberately out of scope:
- *   - the artistic/design reason Your Best Nightmare uses this ownership model
- *   - every SpecialSceneYourBestNightmare visual effect
- *   - exact original member names for LogicColor's warning-state fields
- *   - unlocks, progression, challenge requirements, or account state
+ *   - artistic/design motivation for the YBN mechanic
+ *   - the full SpecialSceneYourBestNightmare presentation choreography
+ *   - every historical April Fools chart using green Arcs
+ *   - the separate chart-level colour-3 Arc->ArcTap conversion subsystem
+ *   - unlocks, progression, challenge requirements and account systems
  *
  * This file builds directly on:
+ *   01_recollection_rate.cpp
+ *   02_note_fundamentals.cpp
  *   04_arc_contact.cpp
  *   05_arc_path.cpp
  *   10_timinggroups.cpp
@@ -40,23 +50,35 @@
  *   libcocos2dcpp.so SHA-256
  *   3eaca4e6dabb3395f276f8915698d57675757d0df0970e716b23a3dc201c79be
  *
- * Useful native anchors from this build:
+ * Useful native anchors:
  *   LogicColor create/initialise helper                  ~0x0D93594
  *   LogicColor channel cache/factory                    ~0x0D51220
  *   LogicColor touch acceptance                         ~0x15A90C4
  *   LogicColor touch release                            ~0x13DB7A0
  *   LogicColor per-frame maintenance                    ~0x1482CB0
- *   LogicChart virtual initialiser                      ~0x173B358
- *   LogicChart YBN/ratingClass-3 branch                 ~0x173BC20 / ~0x173C2DC
- *   LogicArcNote +0x170 factory branches                ~0x18651D4 / ~0x18654E0
- *   `ratingClass` parser references                     ~0x0D9A278 / ~0x10E90CC
- *   selected-ratingClass difficulty lookup              ~0x0E17528
- *   selected-ratingClass resource lookup                ~0x1513C24
+ *
+ *   LogicChart YBN/ratingClass-3 setup                  ~0x173BC20 / ~0x173C2DC
+ *   LogicArcNote +0x170 factory writes                  ~0x18651D4 / ~0x18654E0
+ *
+ *   LogicArcNote successful-event virtual               ~0x17CE17C
+ *   LogicArcNote LOST-event virtual                     ~0x100BC68
+ *   LogicArcNote contact/ownership hook                 ~0x15DFE2C
+ *
+ *   SpecialSceneYourBestNightmare note-event hook       ~0x14F07DC
+ *   YBN special LifeBar fan-out helper                  ~0x0E61688
+ *   YBN per-LifeBar +5 gain path                        ~0x0EE189C
+ *   common RR apply/change routine                      ~0x133FAC8
+ *
+ *   ScoreState successful judgement                     ~0x1730290
+ *   point-note accepted-hit hook                        ~0x0965E28
+ *   point-note LOST hook                                ~0x07E995C
+ *   LogicLongNoteBase success virtual                   ~0x1314868
+ *   LogicLongNoteBase LOST virtual                      ~0x107D66C
  *
  * WARNING ABOUT SYMBOLS:
- * `LogicColor` and `LogicChart` survive through RTTI/type-name evidence.
- * Names such as `ownershipWarningActive` below are reconstructed semantic names,
- * not recovered original source identifiers.
+ * `LogicColor`, `LogicChart`, `LogicArcNote`, and
+ * `SpecialSceneYourBestNightmare` are supported by surviving RTTI/type strings.
+ * Other member/helper names below are reconstructed semantic names.
  */
 
 #include <algorithm>
@@ -64,41 +86,32 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// 1. Section 12's ArcTouchTracker is actually native LogicColor
+// 1. Arc +0xB0 points to native LogicColor
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED by surviving RTTI plus constructor/factory behaviour.
+ * CONFIRMED.
  *
- * Section 12 reconstructed Arc +0xB0 as a touch-ownership tracker because its
- * observed consumers were almost entirely ownership-related. The underlying
- * native class is broader: it is `LogicColor`.
+ * Section 12 reconstructed Arc +0xB0 as a touch-ownership tracker. The native
+ * RTTI identity of that object is `LogicColor`.
  *
- * A LogicColor instance carries both:
- *   - a colour/channel identity used by Arc rendering/grouping
- *   - the touch-ID ownership state associated with that channel
+ * This class combines two concepts:
  *
- * The important architectural correction is therefore:
+ *   1. presentation colour/channel identity
+ *   2. touch-ID ownership state for that colour/channel
  *
- *     old mental model:
- *         each Arc owns an independent tracker
- *
- *     refined model:
- *         Arc -> shared LogicColor channel -> touch ownership for that colour
- *
- * The factory reuses an existing LogicColor whose channel ID matches the
- * requested channel, rather than necessarily allocating one object per Arc.
+ * Normal Arcs therefore do not each own an isolated tracker. Arcs which resolve
+ * to the same LogicColor share the ownership state of that colour channel.
  */
 struct LogicColor {
-    float tickIntervalMs;               // +0x0C, behaviour from Section 12
+    float tickIntervalMs;               // +0x0C
 
-    bool proximityOwnershipBypass;      // +0x10
-    int32_t proximityRefreshTimeMs;     // +0x14
+    bool nearbyOwnershipBypass;         // +0x10, temporary relaxation
+    int32_t nearbyRefreshTimeMs;        // +0x14
 
-    int32_t channelId;                  // +0x18, CONFIRMED colour/channel identity
+    int32_t channelId;                  // +0x18, CONFIRMED
 
-    // +0x1C..+0x21 contain compact colour data used by presentation.
-    // Exact original member grouping/name is not required here.
+    // +0x1C..+0x21: compact native colour data.
     uint8_t colourData[6];
 
     bool acceptedThisUpdate;            // +0x22
@@ -107,78 +120,71 @@ struct LogicColor {
     int32_t assignedTouchId;            // +0x28, -1 = none
     int32_t releaseLockoutStartMs;      // +0x2C, -1 = inactive
 
-    int32_t ownershipWarningActive;      // +0x30, RECONSTRUCTED name
-    float ownershipWarningRemainingMs;  // +0x34, RECONSTRUCTED name
-    int32_t ownershipWarningStartMs;     // +0x38, RECONSTRUCTED name
+    int32_t rejectionFeedbackActive;    // +0x30, RECONSTRUCTED name
+    float rejectionFeedbackRemainingMs;// +0x34, RECONSTRUCTED name
+    int32_t rejectionFeedbackStartMs;   // +0x38, RECONSTRUCTED name
 };
 
 static int ownershipWindowMs(float tickIntervalMs)
 {
-    // CONFIRMED arithmetic from Section 12.
+    // CONFIRMED from the native ownership helpers.
     return static_cast<int>(
         std::min(4.0f * tickIntervalMs, 1000.0f));
 }
 
 // -----------------------------------------------------------------------------
-// 2. LogicColor is cached/reused by channel ID
+// 2. LogicColor objects are cached by channel ID
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED around the LogicColor factory/cache helper ~0x0D51220.
+ * CONFIRMED around ~0x0D51220.
  *
- * The Arc conversion path first derives a LogicColor channel ID from chart Arc
- * colour plus current LogicChart context. It then scans the existing LogicColor
- * collection and reuses an entry with matching +0x18.
- *
- * Only when the requested channel does not already exist is a new LogicColor
- * allocated/initialised.
+ * The chart/runtime conversion derives a LogicColor channel, scans the existing
+ * colour vector, and reuses the object whose +0x18 channel matches.
  */
 LogicColor* getOrCreateLogicColor(
     std::vector<LogicColor*>& colours,
-    int32_t requestedChannelId)
+    int32_t channelId)
 {
     for (LogicColor* colour : colours) {
-        if (colour->channelId == requestedChannelId) {
+        if (colour->channelId == channelId) {
             return colour;
         }
     }
 
-    LogicColor* colour = createLogicColor(requestedChannelId);
+    LogicColor* colour = createLogicColor(channelId);
     colours.push_back(colour);
     return colour;
 }
 
 /*
- * CONFIRMED consequence:
- * Normal Arc touch ownership is naturally shared by Arcs which resolve to the
- * same LogicColor channel. Section 12's process/global claimed-touch list still
- * prevents independent fresh claims of one finger by unrelated ordinary colour
- * channels, while each LogicColor remembers its currently assigned touch ID.
+ * Practical model:
+ *
+ *     Arc A --+
+ *             +--> LogicColor(channel X) --> one ordinary owned touch ID
+ *     Arc B --+
+ *
+ * Different ordinary LogicColors also coordinate through the global claimed-ID
+ * set reconstructed in Section 12.
  */
 
 // -----------------------------------------------------------------------------
-// 3. The old mysterious `mode == 3` is LogicColor channel ID 3
+// 3. LogicColor channel ID 3 is a special ownership channel
 // -----------------------------------------------------------------------------
 
 /*
- * Section 12 observed an integer at +0x18 and called it `mode` because its
- * semantic origin was unknown. The acceptance helper contained:
+ * CONFIRMED refinement of Section 12's old `mode == 3` branch.
  *
- *     if (+0x18 == 3)
- *         return true;
+ * +0x18 is the LogicColor channel ID, not a transient tracker mode.
  *
- * We can now state the real behaviour more precisely:
+ * Native acceptance ordering is approximately:
  *
- *     if (LogicColor.channelId == 3)
- *         ordinary touch-ID ownership checks are bypassed
+ *   release lockout
+ *      -> if channelId == 3: accept
+ *      -> otherwise ordinary exact-ID/global ownership checks
  *
- * Channel ID 3 is therefore not a transient tracker mode. It is a distinct
- * colour/channel identity whose touch-ownership policy differs from ordinary
- * channels 0..2.
- *
- * Native colour initialisation also associates channel 3 with a neutral/grey
- * presentation, while channel 2 is the green Arc colour used by the special
- * chart discussed later in this file.
+ * Therefore channel 3 does not claim/enforce ordinary exclusive finger identity.
+ * Geometry is still checked before Arc contact reaches this ownership layer.
  */
 bool logicColorAcceptsTouch(
     LogicColor& colour,
@@ -188,103 +194,95 @@ bool logicColorAcceptsTouch(
 {
     colour.tickIntervalMs = currentTickIntervalMs;
 
-    // Mechanical release/re-entry lockout still runs before the special channel
-    // branch, matching the native ordering established in Section 12.
     if (colour.releaseLockoutStartMs != -1) {
         const int timeout = ownershipWindowMs(colour.tickIntervalMs);
 
         if (nowMs - colour.releaseLockoutStartMs < timeout) {
-            armOwnershipWarning(colour, nowMs);
+            armRejectionFeedback(colour, nowMs);
             return false;
         }
 
         colour.releaseLockoutStartMs = -1;
     }
 
-    // CONFIRMED special channel rule.
     if (colour.channelId == 3) {
         return true;
     }
 
-    // Ordinary IDs 0..2 continue into the Section 12 ownership state machine:
-    // same-ID acceptance, temporary proximity relaxation, assigned-ID rejection,
-    // and globally exclusive fresh claim.
     return ordinaryLogicColorOwnershipCheck(colour, touchId, nowMs);
 }
 
-/*
- * Important boundary:
- * channel 3 bypasses ordinary finger-ID ownership, NOT Arc geometry.
- * The touch still has to reach the Arc contact hook after ordinary spatial
- * qualification.
- */
-
 // -----------------------------------------------------------------------------
-// 4. +0x2C is gameplay lockout; +0x30/+0x34/+0x38 are warning presentation
+// 4. Do NOT confuse LogicColor channel 3 with chart Arc colour 3
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED refinement of Section 12.
+ * IMPORTANT NAMESPACE SEPARATION.
  *
- * The mechanical release/re-acquisition rule is stored at:
+ *   LogicColor.channelId == 3
+ *       = runtime colour/ownership channel discussed above.
  *
- *     LogicColor +0x2C = release-lockout start time
+ *   chart Arc colour/index == 3
+ *       = a separate extended chart mechanism previously excavated as a
+ *         zero-duration Arc conversion path producing LogicArcTapNote-like
+ *         runtime behaviour.
  *
- * A rejected ownership attempt can additionally arm the following state:
+ * They happen to use the integer 3 but are not the same concept.
  *
- *     +0x30 : active/rejection-feedback latch
- *     +0x38 : feedback start time
- *     +0x34 : feedback remaining time
- *
- * The exact original names are unavailable, but their role is no longer
- * ambiguous because RenderArcNote consumes the remaining-time field.
+ * The chart-colour-3 conversion is intentionally deferred to its own refinement
+ * rather than being mixed into LogicColor ownership semantics here.
  */
-void armOwnershipWarning(LogicColor& colour, int32_t nowMs)
+
+// -----------------------------------------------------------------------------
+// 5. +0x2C is mechanical lockout; +0x30/+0x34/+0x38 are red feedback
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED.
+ *
+ * Mechanical state:
+ *
+ *     +0x2C = release/re-acquisition lockout start
+ *
+ * Rejection presentation state:
+ *
+ *     +0x30 = feedback latch
+ *     +0x38 = feedback start time
+ *     +0x34 = remaining feedback time
+ *
+ * The warning countdown uses the same min(4*tickInterval,1000) duration family,
+ * but it is not itself what rejects a touch.
+ */
+void armRejectionFeedback(LogicColor& colour, int32_t nowMs)
 {
-    colour.ownershipWarningActive = 1;
+    colour.rejectionFeedbackActive = 1;
 
-    if (colour.ownershipWarningRemainingMs < 0.0f) {
-        colour.ownershipWarningStartMs = nowMs;
+    if (colour.rejectionFeedbackRemainingMs < 0.0f) {
+        colour.rejectionFeedbackStartMs = nowMs;
     }
 }
 
-void updateOwnershipWarning(LogicColor& colour, int32_t nowMs)
+void updateRejectionFeedback(LogicColor& colour, int32_t nowMs)
 {
-    if (colour.ownershipWarningActive == 0) {
-        colour.ownershipWarningRemainingMs = -1.0f;
+    if (colour.rejectionFeedbackActive == 0) {
+        colour.rejectionFeedbackRemainingMs = -1.0f;
         return;
     }
 
     const int duration = ownershipWindowMs(colour.tickIntervalMs);
     const int elapsed =
-        std::max(nowMs - colour.ownershipWarningStartMs, 0);
+        std::max(nowMs - colour.rejectionFeedbackStartMs, 0);
     const int remaining = duration - elapsed;
 
-    colour.ownershipWarningRemainingMs =
+    colour.rejectionFeedbackRemainingMs =
         remaining >= 0
             ? static_cast<float>(remaining)
             : -1.0f;
 }
 
 /*
- * CONFIRMED renderer consequence:
- * While the warning countdown is active, judged Arc presentation is blended
- * toward the warning colour:
- *
- *     RGB(230, 50, 50)
- *
- * The exact interpolation curve is presentation detail and is not promoted here
- * unless separately needed.
- *
- * Therefore the clean state separation is:
- *
- *     +0x2C
- *       gameplay: temporary re-acquisition rejection after release
- *
- *     +0x30/+0x34/+0x38
- *       presentation: red ownership/conflict warning after rejection
- *
- * They use the same timeout family but are not the same mechanism.
+ * CONFIRMED RenderArcNote consumer:
+ * an active rejection countdown blends a judged Arc toward RGB(230,50,50).
  */
 struct Rgb8 {
     uint8_t r;
@@ -295,35 +293,222 @@ struct Rgb8 {
 static constexpr Rgb8 kOwnershipWarningColour = {230, 50, 50};
 
 // -----------------------------------------------------------------------------
-// 5. Arc +0x170 remains an ownership-only bypass
+// 6. YBN special context = exact song ID + selected ratingClass 3
 // -----------------------------------------------------------------------------
 
 /*
- * Section 12 proved the contact-hook ordering:
+ * CONFIRMED from LogicChart construction and ratingClass/resource lookup.
  *
- *     Arc touch geometry
- *         -> if Arc +0x170 == 0:
- *                ask LogicColor to accept/own the touch
- *            else:
- *                skip LogicColor ownership check
- *         -> update ordinary Arc contact state
+ * The old anonymous context byte around LogicChart +0x111 is enabled when:
  *
- * Thus +0x170 does NOT mean auto-hit and does NOT enlarge/bypass the hitbox.
+ *     song/content ID == "yourbestnightmare"
+ *     && selected ratingClass == 3
+ *
+ * The selected integer previously observed at the associated context +0x124 is
+ * behaviourally identified as selected ratingClass / difficulty class through:
+ *
+ *   - native `ratingClass` integer parsing
+ *   - difficulty-table lookup
+ *   - chart/resource lookup
+ *   - a separate `dropdead` branch testing the same field against 2
  */
-struct LogicArcNoteSelectedFields {
-    LogicColor* colour;            // conceptual Arc +0xB0
-    bool bypassColourOwnership;    // Arc +0x170, RECONSTRUCTED name
+struct ChartSelectionContext {
+    int32_t selectedRatingClass; // conceptual +0x124
 };
 
+bool isYourBestNightmareSpecialContext(
+    const char* songId,
+    const ChartSelectionContext& selection)
+{
+    return
+        stringEquals(songId, "yourbestnightmare") &&
+        selection.selectedRatingClass == 3;
+}
+
+// -----------------------------------------------------------------------------
+// 7. YBN folds chart colours 0 and 1 onto one LogicColor channel
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED directly in ~0x0D51220.
+ *
+ * When LogicChart +0x111 is active:
+ *
+ *     chart colour 0 -> LogicColor channel 1
+ *     chart colour 1 -> LogicColor channel 1
+ *     chart colour 2 -> remains channel 2
+ *
+ * Thus YBN ratingClass 3 deliberately changes the ownership-channel topology.
+ */
+int32_t deriveLogicColorChannel(
+    int32_t chartColourIndex,
+    bool ybnSpecialContext)
+{
+    if (ybnSpecialContext && chartColourIndex <= 1) {
+        return 1;
+    }
+
+    return ordinaryArcColourChannelMapping(chartColourIndex);
+}
+
+/*
+ * Readable picture:
+ *
+ *     chart colour 0 ----+
+ *                         +--> shared LogicColor channel 1
+ *     chart colour 1 ----+
+ *
+ *     chart colour 2 --------> separate green LogicColor channel 2
+ */
+
+// -----------------------------------------------------------------------------
+// 8. Generic chart colour 2 is green; it is NOT inherently a no-score Arc
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED by the factory condition and prior colour reconstruction.
+ *
+ * Chart colour/index 2 is the generic green Arc substrate.
+ *
+ * Crucially, LogicArcNote +0x170 is NOT set merely because colour == 2.
+ * It is set only under the YBN special context described above.
+ *
+ * Therefore a colour-2 Arc outside that context retains ordinary LogicArcNote
+ * successful-event, LOST-event and LogicColor ownership behaviour.
+ *
+ * This explains why other content can use green Arcs as ordinary scoring Arcs.
+ */
+
+// -----------------------------------------------------------------------------
+// 9. Arc +0x170 is the YBN special green-Arc capability flag
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED factory condition around ~0x18651D4 / ~0x18654E0:
+ *
+ *     if (LogicChart.+0x111 != 0 && chartArc.colorIndex == 2)
+ *         LogicArcNote.+0x170 = 1;
+ *
+ * Combining the resolved LogicChart context gives:
+ */
+bool shouldEnableYbnGreenSpecial(
+    const char* songId,
+    int32_t selectedRatingClass,
+    int32_t chartArcColourIndex)
+{
+    return
+        stringEquals(songId, "yourbestnightmare") &&
+        selectedRatingClass == 3 &&
+        chartArcColourIndex == 2;
+}
+
+struct LogicArcNoteSelectedFields {
+    LogicColor* logicColor;          // conceptual +0xB0
+    bool ybnGreenSpecial;            // +0x170, RECONSTRUCTED name
+};
+
+/*
+ * The first version of Section 19 called this an ownership-only flag. That was
+ * too narrow. Native code consults +0x170 in THREE LogicArcNote virtual paths.
+ */
+
+// -----------------------------------------------------------------------------
+// 10. +0x170 effect #1: suppress ordinary successful-event accounting
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED LogicArcNote virtual around ~0x17CE17C:
+ *
+ *     return (Arc +0x170 == 0);
+ *
+ * Vtable comparison aligns this slot with the successful judgement/event hook:
+ *
+ *   LogicTapNote / common point note:
+ *       marks accepted hit and returns true
+ *
+ *   LogicLongNoteBase:
+ *       returns true for each long event
+ *
+ *   LogicArcNote:
+ *       returns !+0x170
+ *
+ * Section 02 proves ScoreState calls this note virtual BEFORE it increments
+ * ordinary judgement counters and BEFORE it fans the success out to LifeBarState.
+ * A false result aborts that ordinary accounting path.
+ */
+bool acceptArcSuccessfulEvent(const LogicArcNoteSelectedFields& arc)
+{
+    return !arc.ybnGreenSpecial;
+}
+
+/*
+ * Consequence for a YBN +0x170 Arc event:
+ *
+ *   - no ordinary Pure/Far/Max-Pure score/judgement counter increment
+ *   - no ordinary successful-judgement LifeBarState fan-out
+ *   - downstream ordinary streak/combo bookkeeping is skipped with the same
+ *     early return
+ *
+ * Practical result: YBN special green Arcs do not contribute ordinary score or
+ * combo despite still having their own special-success behaviour below.
+ */
+
+// -----------------------------------------------------------------------------
+// 11. +0x170 effect #2: suppress ordinary LOST accounting
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED LogicArcNote virtual around ~0x100BC68:
+ *
+ *     return (Arc +0x170 == 0);
+ *
+ * Vtable comparison aligns this with the common LOST-event hook:
+ *
+ *   point note LOST hook       -> accepts the LOST
+ *   LogicLongNoteBase LOST     -> returns true
+ *   LogicArcNote LOST          -> returns !+0x170
+ *
+ * Section 02 proves ScoreState asks this virtual before incrementing LOST count
+ * and before LifeBarState LOST fan-out.
+ */
+bool acceptArcLostEvent(const LogicArcNoteSelectedFields& arc)
+{
+    return !arc.ybnGreenSpecial;
+}
+
+/*
+ * Therefore YBN +0x170 green Arcs:
+ *
+ *   - do not increment ordinary LOST count through this path
+ *   - do not apply ordinary long-note LOST RR damage through this path
+ */
+
+// -----------------------------------------------------------------------------
+// 12. +0x170 effect #3: bypass LogicColor finger ownership
+// -----------------------------------------------------------------------------
+
+/*
+ * CONFIRMED Arc contact hook around ~0x15DFE2C.
+ *
+ * Geometry is checked before this hook.
+ *
+ * Ordinary Arc:
+ *     geometry -> LogicColor ownership -> Arc contact
+ *
+ * +0x170 Arc:
+ *     geometry -------------------------> Arc contact
+ *
+ * Thus +0x170 does NOT auto-hit and does NOT bypass the hitbox.
+ */
 bool acceptGeometricallyQualifiedArcTouch(
     LogicArcNoteSelectedFields& arc,
     int32_t touchId,
     int32_t nowMs,
     float tickIntervalMs)
 {
-    if (!arc.bypassColourOwnership) {
+    if (!arc.ybnGreenSpecial) {
         if (!logicColorAcceptsTouch(
-                *arc.colour,
+                *arc.logicColor,
                 touchId,
                 nowMs,
                 tickIntervalMs)) {
@@ -335,276 +520,213 @@ bool acceptGeometricallyQualifiedArcTouch(
 }
 
 // -----------------------------------------------------------------------------
-// 6. The external +0x170 context is native LogicChart state
+// 13. SpecialSceneYourBestNightmare also recognizes +0x170 Arcs
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED from RTTI and the virtual initialiser around ~0x173B358.
+ * CONFIRMED note-event hook around ~0x14F07DC.
  *
- * Section 12 observed a context byte around +0x111 but could not identify its
- * owner. It belongs to the LogicChart-side construction context.
+ * The surviving SpecialSceneYourBestNightmare virtual performs:
  *
- * The relevant branch compares the exact content/song ID:
+ *     LogicNote*
+ *        -> dynamic_cast<LogicArcNote*>
+ *        -> require Arc +0x170 != 0
+ *        -> invoke YBN special success/gauge helper
  *
- *     "yourbestnightmare"
- *
- * and additionally checks an integer at a retained chart-selection object
- * around +0x124.
- *
- * A deeper parser/resource audit resolves that integer below.
+ * This is the decisive evidence that +0x170 is a broader YBN capability marker,
+ * not merely a local ownership flag.
  */
-struct LogicChartSelectedState {
-    bool yourBestNightmareOwnershipRule; // conceptual +0x111
-};
-
-// -----------------------------------------------------------------------------
-// 7. The +0x124 qualifier is selected ratingClass / difficulty class
-// -----------------------------------------------------------------------------
-
-/*
- * CONFIRMED behavioural identity from multiple independent native/data paths.
- * Exact original C++ member name is not recovered.
- *
- * Evidence chain:
- *
- *   1. Native parsers reference the literal key `ratingClass` and parse it as an
- *      integer for difficulty records.
- *
- *   2. The parsed integer is stored in the corresponding difficulty object.
- *
- *   3. LogicChart later reads retained selection-context +0x124 and passes that
- *      integer into the song difficulty-table lookup.
- *
- *   4. The same selected integer participates in chart/resource lookup.
- *
- *   5. The bundled song list contains ratingClass 3 for Your Best Nightmare,
- *      matching the hard-coded `== 3` branch exactly.
- *
- *   6. The same LogicChart initialiser contains another song-specific branch for
- *      `dropdead` which compares the same +0x124 field against 2, reinforcing
- *      that this field is a selected difficulty/rating class rather than an
- *      unrelated YBN-only enum.
- *
- * Therefore `selectedRatingClass` is a safe behavioural name.
- */
-struct ChartSelectionContext {
-    // Other selection/runtime members omitted.
-    int32_t selectedRatingClass; // conceptual +0x124, behavioural identity CONFIRMED
-};
-
-bool shouldEnableYourBestNightmareOwnershipRule(
-    const char* songId,
-    const ChartSelectionContext& selection)
+void onYbnSpecialNoteEvent(
+    SpecialSceneYourBestNightmare& scene,
+    LogicNote* note)
 {
-    return
-        stringEquals(songId, "yourbestnightmare") &&
-        selection.selectedRatingClass == 3;
-}
+    LogicArcNote* arc = dynamic_cast<LogicArcNote*>(note);
 
-/*
- * This corrects the earlier provisional interpretation "song == YBN".
- * The special rule is narrower:
- *
- *     Your Best Nightmare, ratingClass 3 only
- */
-
-// -----------------------------------------------------------------------------
-// 8. YBN ratingClass 3 changes LogicColor channel assignment
-// -----------------------------------------------------------------------------
-
-/*
- * CONFIRMED in the LogicColor factory/channel-selection path.
- *
- * Under the YBN ratingClass-3 context, chart Arc colours 0 and 1 are folded onto
- * the same ordinary LogicColor ownership channel.
- *
- * Chart colour 2 remains a separate channel and retains its green presentation.
- *
- * Readable model:
- *
- *     ordinary chart:
- *         chart colour -> ordinary corresponding LogicColor channel
- *
- *     YBN ratingClass 3:
- *         chart colour 0 --+
- *                         +--> shared ordinary LogicColor ownership channel
- *         chart colour 1 --+
- *
- *         chart colour 2 ----> separate green LogicColor channel
- */
-int32_t deriveYbnLogicColorChannel(
-    int32_t chartColourIndex,
-    bool ybnRatingClass3)
-{
-    if (ybnRatingClass3 && chartColourIndex <= 1) {
-        return 1; // observed special folding target
+    if (!arc || !arc->ybnGreenSpecial) {
+        return;
     }
 
-    return ordinaryArcColourChannelMapping(chartColourIndex);
+    applyYbnSpecialGreenGain(scene);
 }
 
 // -----------------------------------------------------------------------------
-// 9. YBN ratingClass 3 also removes colour-2 Arcs from ordinary ownership
+// 14. YBN special green success gives a base +5 RR
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED Arc factory condition around ~0x18651D4 and duplicate creation path
- * around ~0x18654E0:
+ * CONFIRMED native chain:
  *
- *     LogicChart special byte != 0
- *     && chartArc.colorIndex == 2
- *         -> LogicArcNote +0x170 = 1
+ *   SpecialSceneYourBestNightmare note hook  ~0x14F07DC
+ *       -> helper                           ~0x0E61688
+ *       -> per-LifeBarState path            ~0x0EE189C
+ *       -> common RR apply                  ~0x133FAC8
  *
- * Combining that with the now-resolved LogicChart condition gives:
+ * The per-LifeBar path contains a literal:
+ *
+ *     5.0f
+ *
+ * and passes the resulting gain into the same common RR application routine
+ * established in Section 01.
+ *
+ * If a CharacterAbility is present, the +5 base gain passes through the active
+ * ability's modifier hooks before the final common apply/clamp path.
  */
-bool shouldBypassArcColourOwnership(
-    const char* songId,
-    int32_t selectedRatingClass,
-    int32_t chartArcColourIndex)
+static constexpr float kYbnGreenBaseGain = 5.0f;
+
+void applyYbnSpecialGreenGain(
+    std::vector<LifeBarState*>& lifeBars)
 {
-    return
-        stringEquals(songId, "yourbestnightmare") &&
-        selectedRatingClass == 3 &&
-        chartArcColourIndex == 2;
+    for (LifeBarState* bar : lifeBars) {
+        float gain = kYbnGreenBaseGain;
+
+        if (bar->ability != nullptr) {
+            gain = applyRelevantAbilityGainModifiers(
+                *bar->ability,
+                gain);
+        }
+
+        applyRecollectionChange(
+            *bar,
+            /* gain */ gain,
+            /* loss */ 0.0f);
+    }
 }
 
 /*
- * Compact gameplay model:
+ * This is separate from ordinary note-success gauge fan-out, which +0x170 has
+ * already suppressed through the LogicArcNote successful-event virtual.
  *
- *     YOUR BEST NIGHTMARE, ratingClass 3
- *
- *       chart colour 0 ----+
- *                            +--> shared LogicColor ownership channel
- *       chart colour 1 ----+
- *
- *       chart colour 2 --------> separate green LogicColor
- *                                  |
- *                                  +--> Arc +0x170 = 1
- *                                       skip ordinary finger-ID ownership
- *
- * Geometry and normal Arc contact/judgement processing remain active.
- *
- * Thus colour 2 is not an auto-hit colour. It is a colour whose Arcs are exempt
- * from the ordinary LogicColor touch-ID ownership requirement in this specific
- * song/difficulty context.
+ * So the special green Arc does NOT receive ordinary RF gain plus 5.
+ * It receives the dedicated YBN special base gain path instead.
  */
 
 // -----------------------------------------------------------------------------
-// 10. Gameplay vs presentation boundary
+// 15. Compact YBN green-Arc state machine
 // -----------------------------------------------------------------------------
 
 /*
- * CONFIRMED gameplay-affecting state:
- *
- *   - LogicColor assigned touch ID / global claim coordination
- *   - release re-acquisition lockout at +0x2C
- *   - channel-ID-3 ownership bypass
- *   - YBN ratingClass-3 channel folding
- *   - YBN ratingClass-3 colour-2 Arc +0x170 ownership bypass
- *
- * CONFIRMED presentation state:
- *
- *   - LogicColor colour data
- *   - +0x30/+0x34/+0x38 rejection-warning state
- *   - RenderArcNote blending toward RGB(230,50,50) while warning is active
- *
- * Importantly, the red warning is downstream feedback from ownership rejection.
- * It is not what causes the rejection.
+ * RECONSTRUCTED from the confirmed mechanisms above.
  */
-
-// -----------------------------------------------------------------------------
-// 11. Final reconstructed flow
-// -----------------------------------------------------------------------------
-
-/*
- * RECONSTRUCTED from the confirmed mechanics above.
- */
-void buildRuntimeArc(
+void buildArcForChart(
     RuntimeContext& runtime,
     LogicChart& chart,
     const ChartArc& chartArc)
 {
-    const bool ybnSpecial =
+    const bool ybnContext =
         chart.songId == "yourbestnightmare" &&
         chart.selection.selectedRatingClass == 3;
 
     const int32_t logicColorChannel =
-        deriveYbnLogicColorChannel(
+        deriveLogicColorChannel(
             chartArc.colorIndex,
-            ybnSpecial);
+            ybnContext);
 
-    LogicColor* logicColor =
+    LogicArcNote* arc = createOrdinaryLogicArc(chartArc);
+    arc->logicColor =
         getOrCreateLogicColor(
             runtime.logicColors,
             logicColorChannel);
 
-    LogicArcNote* arc = createOrdinaryLogicArc(chartArc);
-    arc->colour = logicColor;
-
-    arc->bypassColourOwnership =
-        ybnSpecial && chartArc.colorIndex == 2;
+    arc->ybnGreenSpecial =
+        ybnContext && chartArc.colorIndex == 2;
 }
-
-bool processArcTouch(
-    LogicArcNoteSelectedFields& arc,
-    const Touch& touch,
-    int32_t nowMs)
-{
-    if (!arcGeometryQualifies(arc, touch)) {
-        return false;
-    }
-
-    if (!arc.bypassColourOwnership &&
-        !logicColorAcceptsTouch(
-            *arc.colour,
-            touch.id,
-            nowMs,
-            currentArcTickInterval(arc))) {
-        return false;
-    }
-
-    return applyOrdinaryArcContact(arc, touch, nowMs);
-}
-
-// -----------------------------------------------------------------------------
-// 12. What remains unresolved
-// -----------------------------------------------------------------------------
 
 /*
- * UNRESOLVED, but not required to understand this mechanic:
+ * During play:
  *
- *   - original names of +0x30/+0x34/+0x38
- *   - exact artistic intent behind the red ownership-warning interpolation
- *   - why YBN ratingClass 3 specifically folds colours 0/1 and exempts colour 2
- *   - full SpecialSceneYourBestNightmare visual choreography
- *
- * None of these uncertainties change the recovered gameplay model.
+ *   YBN green touch
+ *       |
+ *       +-> must still pass ordinary Arc geometry
+ *       |
+ *       +-> skips LogicColor exact finger ownership
+ *       |
+ *       +-> drives ordinary Arc contact/event processing
+ *       |
+ *       +-> ordinary successful-event accounting is rejected
+ *       |      -> no ordinary score/combo/LifeBar success fan-out
+ *       |
+ *       +-> ordinary LOST-event accounting is rejected
+ *       |      -> no ordinary LOST count / RR loss
+ *       |
+ *       +-> SpecialSceneYourBestNightmare recognizes +0x170 success
+ *              -> dedicated base +5 RR path
  */
 
 // -----------------------------------------------------------------------------
-// 13. Compact findings
+// 16. About the archived "one judgement tick each" observation
+// -----------------------------------------------------------------------------
+
+/*
+ * PRIOR EXCAVATION EVIDENCE, NOT RE-DERIVED TO THE SAME STANDARD IN THIS PASS:
+ * the archived YBN investigation recorded one special judgement tick/event per
+ * green Arc.
+ *
+ * The current binary pass fully explains what happens WHEN the +0x170 special
+ * success callback occurs, but this section does not yet prove the exact
+ * construction/data reason that each YBN green Arc supplies only one such event.
+ *
+ * Therefore:
+ *
+ *   observed one-event behaviour        = retained prior evidence
+ *   exact event-generation mechanism    = UNRESOLVED here
+ *
+ * This uncertainty does not change the scoring/RR semantics reconstructed above.
+ */
+
+// -----------------------------------------------------------------------------
+// 17. Final separation of the three colour concepts
+// -----------------------------------------------------------------------------
+
+/*
+ * Keep these namespaces separate:
+ *
+ *   chart colour/index 2
+ *       generic green Arc substrate
+ *
+ *   YBN ratingClass-3 + chart colour 2
+ *       generic green Arc + runtime +0x170 special capability
+ *
+ *   LogicColor.channelId 3
+ *       special runtime ownership channel which accepts without ordinary
+ *       exclusive touch-ID enforcement
+ *
+ *   chart colour/index 3
+ *       separate extended chart conversion path into ArcTap-like runtime
+ *       behaviour; not the same as LogicColor channel 3
+ */
+
+// -----------------------------------------------------------------------------
+// 18. Evidence classification
 // -----------------------------------------------------------------------------
 
 /*
  * CONFIRMED:
- *   - Section 12's Arc tracker is native LogicColor.
- *   - LogicColor objects are reused by colour/channel ID.
- *   - `mode == 3` was actually LogicColor channel ID 3.
- *   - channel ID 3 bypasses ordinary exclusive touch-ID ownership.
- *   - +0x2C is the mechanical release/re-acquisition lockout start.
- *   - +0x30/+0x34/+0x38 drive red rejection-warning presentation.
- *   - RenderArcNote warns toward RGB(230,50,50).
- *   - LogicChart's +0x111 special state is enabled for exact song ID
- *     `yourbestnightmare` when selected ratingClass == 3.
- *   - selected context +0x124 behaves as selected ratingClass/difficulty class.
- *   - under that YBN context, chart colours 0/1 share one LogicColor channel.
- *   - chart colour 2 remains separate and gets Arc +0x170.
- *   - Arc +0x170 skips LogicColor ownership only; geometry still applies.
+ *   - Arc +0xB0 points to native LogicColor.
+ *   - LogicColor is shared/cached by channel ID.
+ *   - LogicColor channel ID 3 bypasses ordinary exclusive finger ownership.
+ *   - +0x2C is the actual release/re-acquisition lockout start.
+ *   - +0x30/+0x34/+0x38 drive red ownership-rejection feedback.
+ *   - the warning colour target is RGB(230,50,50).
+ *   - YBN special context is exact song `yourbestnightmare`, ratingClass 3.
+ *   - under that context chart colours 0/1 fold onto LogicColor channel 1.
+ *   - chart colour 2 remains the separate green channel.
+ *   - only YBN ratingClass-3 colour-2 Arcs receive +0x170.
+ *   - +0x170 successful-event virtual returns false.
+ *   - +0x170 LOST-event virtual returns false.
+ *   - +0x170 contact hook skips LogicColor ownership but not geometry.
+ *   - SpecialSceneYourBestNightmare recognizes LogicArcNote +0x170.
+ *   - the special success path applies a base +5 RR before normal modifier/clamp
+ *     machinery.
  *
  * RECONSTRUCTED:
- *   - member names such as ownershipWarningActive and bypassColourOwnership.
- *   - the compact helper/function structure used in this notebook.
+ *   - names such as ybnGreenSpecial and rejectionFeedbackActive.
+ *   - practical "no ordinary score/combo" wording around the confirmed early
+ *     rejection of ScoreState's ordinary success-accounting path.
  *
- * UNRESOLVED:
- *   - original source identifiers and design motivation for the special rule.
+ * UNRESOLVED / retained prior evidence:
+ *   - exact original source names for the affected virtuals.
+ *   - exact event-construction reason behind the archived one-event-per-green-Arc
+ *     observation.
+ *   - artistic/design motivation for YBN's colour-channel topology.
+ *   - chart-colour-3 conversion details, deferred to another refinement.
  */
