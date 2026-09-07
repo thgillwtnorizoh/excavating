@@ -1,2 +1,0 @@
-Temporary GitHub connector capability probe.
-Created and removed by ChatGPT to verify non-excavation repository write/delete access in one prompt session.
