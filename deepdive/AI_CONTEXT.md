@@ -4,7 +4,8 @@ This file is the continuity handoff for the current `deepdive/` excavation.
 
 ## Working rules
 
-- Investigated source bundle: stripped Arcaea APK/native engine represented by `arccopy.zip`; main native gameplay code is in ARM64 `libcocos2dcpp.so`.
+- Investigated source bundle: stripped Arcaea APK/native engine represented by `arccopy.zip`; main native gameplay code is ARM64 `libcocos2dcpp.so`.
+- Investigated binary SHA-256: `3eaca4e6dabb3395f276f8915698d57675757d0df0970e716b23a3dc201c79be`.
 - Durable reconstruction repository: `thgillwtnorizoh/excavating`.
 - Current consolidated chapters live in `deepdive/`.
 - Chat is for investigation/explanation. Only after a section is genuinely complete should a durable C++-style pseudocode chapter be written.
@@ -15,27 +16,35 @@ This file is the continuity handoff for the current `deepdive/` excavation.
   - **UNRESOLVED** = exact original name, rationale or behaviour is not sufficiently proved.
 - User-requested scope restriction: **main gameplay and gameplay rendering only**. Do not expand into unlocks, story, menus, purchases, account/network systems, progression or unrelated app infrastructure unless the user explicitly widens scope.
 - Explanations should remain readable to someone without formal programming study. Prefer plain-language descriptions beside pseudocode rather than unnecessary compiler jargon.
+- Prefer blind excavation first. The user may reveal a tag/effect meaning after the native behaviour is characterised so that expectations do not bias reconstruction.
 
 ## Important repository archaeology note
 
-The repository root already contains the earlier detailed excavation notebook, currently `01_recollection_rate.cpp` through `23_ybn_green_event_construction.cpp`, plus `README.md`. These are durable prior findings and should be consulted/cross-checked before re-solving a mechanic from scratch. The current `deepdive/` chapters are a newer consolidated pass over the engine/source architecture.
+The repository root already contains an earlier detailed excavation notebook, currently `01_recollection_rate.cpp` through `23_ybn_green_event_construction.cpp`, plus `README.md`. These are durable prior findings and should be consulted/cross-checked before re-solving a mechanic from scratch. The current `deepdive/` chapters are a newer consolidated pass over source architecture, runtime logic and rendering.
 
-Particularly relevant root chapters for the runtime layer include:
+Particularly useful earlier chapters for Sections 03/04 include:
 
 - `01_recollection_rate.cpp`
 - `02_note_fundamentals.cpp`
 - `03_long_notes.cpp`
 - `04_arc_contact.cpp`
+- `05_arc_path.cpp`
 - `06_arctaps.cpp`
 - `08_lane_geometry.cpp`
+- `09_enwidenlanes.cpp`
 - `10_timinggroups.cpp`
+- `11_gameplay_space.cpp`
 - `12_arc_contact_refinements.cpp`
+- `13_arc_path_refinements.cpp`
 - `14_arc_mode_designant.cpp`
+- `15_rendering_fundamentals.cpp`
+- `16_scenecontrols.cpp`
 - `18_flick_runtime_disconnection.cpp`
 - `19_logiccolor_arc_tracking.cpp`
 - `21_lane_timing_refinements.cpp`
+- `22_rendering_refinements.cpp`
 
-The native anchors in those files were rechecked against the current investigated binary during Deep Dive Section 03 and line up with the same functions/behaviour.
+Those root chapters use the same investigated binary SHA and were rechecked against current native anchors during the consolidated pass.
 
 ---
 
@@ -43,45 +52,27 @@ The native anchors in those files were rechecked against the current investigate
 
 Durable file: `deepdive/01_gameplay_architecture.cpp`.
 
-## CONFIRMED high-level class families
+## Main result
 
-Chart/source data:
+Arcaea separates three class families:
 
-- `Note`
-- `SimpleNote : Note`
-- `ArcNote : Note`
-- `HoldNote : Note`
-- `FlickNote : Note`
-- `Timing : Note`
-- `SceneControl : Note`
-- `CameraControl : Note`
+```text
+AFF/source Note objects
+        ↓
+Logic* gameplay objects
+        ↓
+Render* Cocos nodes
+```
 
-Runtime gameplay logic:
+Confirmed source types include `SimpleNote`, `HoldNote`, `ArcNote`, `FlickNote`, `Timing`, `SceneControl`, and `CameraControl`.
 
-- `LogicEvent : cocos2d::Ref`
-- `LogicTimingEvent : LogicEvent`
-- `LogicNote : cocos2d::Ref`
-- `LogicTapNote : LogicNote`
-- `LogicArcTapNote : LogicTapNote`
-- `LogicLongNoteBase : LogicNote`
-- `LogicHoldNote : LogicLongNoteBase`
-- `LogicArcNote : LogicLongNoteBase`
-- dormant `LogicFlickNote : LogicNote`
-- `LogicSceneControl : LogicNote`
-- `LogicCameraControl : LogicNote`
+Confirmed runtime families include `LogicTapNote`, `LogicArcTapNote`, `LogicLongNoteBase`, `LogicHoldNote`, `LogicArcNote`, `LogicSceneControl`, `LogicCameraControl`, and `LogicTimingEvent`.
 
-Rendering:
-
-- `RenderNote : cocos2d::Node`
-- `RenderTapNote : RenderNote`
-- `RenderArcTapNote : RenderTapNote`
-- `RenderHoldNote : RenderNote`
-- `RenderArcNote : RenderNote`
-- `RenderFlickNote : RenderNote`
+Confirmed render families include `RenderTapNote`, `RenderArcTapNote`, `RenderHoldNote`, `RenderArcNote`, and dormant `RenderFlickNote` support.
 
 Other confirmed gameplay/render objects include `LogicChart`, `GameTimeline`, `GameModel`, `GameScene`, `TrackLayer`, `TrackBase`, `CameraController`, `GameSceneVisualControlHandler`, `LogicArcGroup`, `ScoreState`, `LifeBarState`, `HPBar`, `ArcSegment`, and `NoteBurstRenderer`.
 
-Retained method names include:
+Retained C++ names include:
 
 - `GameModel::initializeTouchEvents()`
 - `GameScene::render(Renderer*, const Mat4&, const Mat4*)`
@@ -90,35 +81,15 @@ Retained method names include:
 - `TrackBase::performTrackSplitAnimation()`
 - `CameraController::animateMovingCameraTo(Vec3, float)`
 
-Main architectural result:
-
-```text
-AFF/source records
-      ↓
-runtime Logic* gameplay objects
-      ↓
-GameModel gameplay state/input
-      ↓
-visual bridge / Track / Camera
-      ↓
-Render* Cocos nodes
-      ↓
-GameScene / cocos2d renderer
-```
-
-Chart data, judgement logic, and visible note objects are separate layers.
-
 ---
 
 # Completed Section 02 — chart / source data
 
 Durable file: `deepdive/02_chart_source_data.cpp`.
 
-## CONFIRMED AFF organisation
+## AFF organisation
 
 AFF is split at the `-` separator into generic header metadata and chart body.
-
-Parsed source container:
 
 ```cpp
 struct ParsedChart {
@@ -128,238 +99,128 @@ struct ParsedChart {
 }; // sizeof = 0x48
 ```
 
-Header values are generic strings. `AudioOffset` is later interpreted with `atoi()`. `TimingPointDensityFactor` defaults to `1.0f` and is replaced with `atof()` when present.
+`AudioOffset` is later interpreted with `atoi()`. `TimingPointDensityFactor` defaults to `1.0f` and is replaced with `atof()` when present.
 
-## CONFIRMED common source Note metadata
+## Common source Note metadata
 
 ```cpp
 class Note {
     int timingGroupId;     // +0x08
-    bool inputEnabled;     // +0x0C, friendly name from noinput behaviour
+    bool inputEnabled;     // +0x0C, from noinput behaviour
     bool fadingHolds;      // +0x0D
     int angleX;            // +0x10
     int angleY;            // +0x14
 };
 ```
 
-Timing-group modifiers confirmed include `noinput`, `fadingholds`, `anglex`, `angley`, and Arc-only `tracecol`.
+Timing-group modifiers include `noinput`, `fadingholds`, `anglex`, `angley`, and Arc-only `tracecol`.
 
-Default timing group is ID 0. Explicit groups are numbered 1,2,3... Notes are stored once in `allNotes`; timing-group vectors hold additional pointers to the same objects.
+Default timing group is ID 0. Explicit groups are numbered 1,2,3... The same source note pointer is stored in `allNotes` and in its group vector.
 
-## CONFIRMED NotePosition
+## NotePosition
 
 `NotePosition : cocos2d::Ref` represents either a discrete lane or a free horizontal coordinate.
 
-Integer source 0..5 maps to internal lane IDs 1..6 and stored horizontal values `-0.5, 0, 0.5, 1, 1.5, 2`. Mirror reverses discrete mapping. Float positions mirror as `x = 1 - x`.
+Integer source 0..5 maps to internal lane IDs 1..6 and stored horizontal values `-0.5,0,0.5,1,1.5,2`. Mirror reverses discrete mapping. Float positions mirror as `x = 1-x`.
 
-## CONFIRMED source note layouts
+## Source note models
 
-`SimpleNote`:
+`SimpleNote` stores point time + `NotePosition*`.
 
-```cpp
-int time;
-NotePosition* position;
-```
+`HoldNote` stores start/end time + `NotePosition*`.
 
-`HoldNote`:
+`Timing` stores time, BPM, and the later-confirmed beats-per-measure value.
 
-```cpp
-int startTime;
-int endTime;
-NotePosition* position;
-```
+`SceneControl` is generic: timestamp, command string, float parameter and integer parameter. Parser normalisation includes `trackhide`/`trackshow` becoming `trackdisplay` with target values 0/255.
 
-`Timing`:
+`CameraControl` stores time, six floats, easing and duration. Runtime preserves order; the first three form a movement Vec3 and the second three form a strongly reconstructed orientation/rotation Vec3. Mirror negates the first movement component and sixth component.
 
-```cpp
-int time;
-float bpm;
-float beatsPerMeasure;
-```
+`ArcNote` stores times, X/Y endpoints, easing, colour, effect, body mode, ArcTap timestamp vector, optional sampling float and optional trace-colour metadata.
 
-The second timing float was refined by later runtime consumers as beats-per-measure/measure beat count.
-
-`SceneControl` is one generic source object:
-
-```cpp
-int time;
-std::string command;
-float floatParameter;
-int intParameter;
-```
-
-Parser normalisation includes:
-
-```text
-trackhide -> trackdisplay, float=0, int=0
-trackshow -> trackdisplay, float=0, int=255
-```
-
-`CameraControl` stores six floats + easing + duration. Runtime groups the first three as movement and the second three as a separate orientation/rotation Vec3. Mirror negates first movement component and sixth component.
-
-`ArcNote` source layout includes start/end time, X endpoints, easing, Y endpoints, colour, effect, body-mode state, `vector<int>` ArcTap timestamps, optional sampling-density float defaulting to 1, and optional trace-colour RGB pointer.
-
-Arc arctype is ternary in this build:
+Arc body type is ternary in this build:
 
 - false -> 0
 - true -> 1
-- native `DESIGNANT` token -> 2
+- native `DESIGNANT` -> 2
 
-ArcTaps are not source objects. Their timestamps live inside the parent Arc source record and become runtime children later.
+ArcTaps are source timestamps inside the parent Arc, not separate source objects.
 
-The optional Arc float controls path/render subdivision sampling density and is clamped to at least `1.0f` at runtime.
+The optional Arc float defaults to 1.0 and later controls denser render tessellation; runtime clamps it to at least 1.0.
 
-## Dormant Flick source path
+## Dormant Flick
 
-`FlickNote` parser/source layout exists and carries one integer timestamp plus four floats. `LogicFlickNote` / `RenderFlickNote` names and downstream handlers survive, but the active source-to-runtime producer does not. The user supplied the implementation-history fact that Arcaea never actually implemented Flick gameplay. Later binary archaeology strengthens this: this target build contains no `LogicFlickNote` class vtable, so live most-derived LogicFlickNote construction is disconnected. Treat Flick as dormant scaffolding and do not invent the missing float semantics.
+Chart `FlickNote` parsing and downstream runtime/render handlers survive, but the investigated binary contains no `LogicFlickNote` class vtable and no producer. Treat Flick as dormant historical scaffolding in this build. Do not invent the missing chart-float semantics.
 
 ---
 
-# Most recent completed task: Section 03 — runtime gameplay logic
+# Completed Section 03 — runtime gameplay logic
 
 Durable file: `deepdive/03_runtime_gameplay_logic.cpp`.
 
-Section 03 closes the fundamental runtime note state machine from source conversion through input, judgement, long-note processing, ScoreState/LifeBarState fan-out, and logic-critical frame ordering.
+## Source -> runtime
 
-## 1. CONFIRMED source -> runtime conversion
+Active conversion handles `SimpleNote`, `CameraControl`, `SceneControl`, `HoldNote`, and `ArcNote`. `Timing` separately becomes per-group `LogicTimingEvent`. No live Flick producer exists.
 
-`LogicChart` actively converts source objects in the family:
+Each note receives the latest timing event in its group with `event.time <= note.time`.
 
-```text
-SimpleNote
-CameraControl
-SceneControl
-HoldNote
-ArcNote
-```
+## Timing model
 
-`Timing` is converted separately to per-group `LogicTimingEvent` streams. No live Flick conversion branch exists.
+Runtime timing carries raw musical BPM and a separate spatial speed form.
 
-Each runtime note receives the latest `LogicTimingEvent` in its timing group whose timestamp is `<= noteTime`.
-
-## 2. CONFIRMED shared judgement clock
-
-Judgement does not use a private timing-group clock. A shared gameplay clock computes effective time from a synchronized/live path or a fallback path. The fallback path subtracts an additional 3000 ms while its source value is non-positive.
-
-Conceptually:
-
-```cpp
-if (useSynchronizedPath)
-    now = synchronizedSource - commonOffset;
-else {
-    now = fallbackSource - commonOffset;
-    if (fallbackSource <= 0)
-        now -= 3000;
-}
-```
-
-Point judgement, automatic misses, long-note expiry/contact and scene scheduling share this effective time family.
-
-## 3. CONFIRMED LogicTimingEvent
-
-Runtime timing stores both musical and spatial timing concepts:
-
-```cpp
-struct LogicTimingEvent {
-    int startTime;
-    int endTime;
-    float effectiveSpatialBpm;      // rawBpm * scrollScale
-    float beatsPerMeasure;
-    float rawBpm;
-    float unknown24;
-    float secondsPerEffectiveBeat;  // 60 / effectiveSpatialBpm
-};
-```
-
-`LogicChart +0xF0` is selected highspeed/note speed. `LogicChart +0xF4` is the confirmed scroll scale:
+`LogicChart +0xF0` is selected highspeed. `LogicChart +0xF4` is:
 
 ```cpp
 scrollScale = highspeed * 180 / chartBaseBpm;
 ```
 
-The important split is:
+Each `LogicTimingEvent` stores roughly:
 
-- raw BPM -> Hold/Arc internal tick cadence
-- effective spatial BPM / beat duration -> path/note movement
-- global gameplay clock -> judgement and expiry
+```cpp
+int time;
+float effectiveSpatialBpm;      // raw BPM * scrollScale
+float beatsPerMeasure;
+float rawBpm;
+float secondsPerEffectiveBeat;  // 60 / effectiveSpatialBpm
+```
 
-## 4. CONFIRMED common runtime Note state
+Important split:
 
-Important common `LogicNote` fields include:
+- raw BPM -> Hold/Arc long-event cadence
+- effective spatial BPM -> note/path travel
+- shared gameplay clock -> judgement/expiry
 
-- `+0x0C` point-note LOST state
-- `+0x0D` point-note successful-hit state
-- `+0x10` input/hit payload, not judgement enum
-- `+0x18/+0x1C` start/end timestamp
-- `+0x20/+0x28` position pointers
-- `+0x48` active LogicTimingEvent pointer
-- `+0x50` timing-group ID
-- `+0x54` inputEnabled from `noinput`
-- `+0x60` monotonic runtime serial/index
+Point judgement does not use a private timing-group clock.
 
-Point notes resolve by hit/lost flags. Core gameplay passes skip resolved objects; immediate object deletion is not required for resolution.
+## Point-note judgement
 
-## 5. CONFIRMED floor touch/lane selection
+Touch-begin builds spatially eligible candidates and sorts them by timestamp.
 
-Raw screen pixels are transformed into gameplay/floor space before lane matching.
-
-Internal discrete lane IDs are 1..6; the normal four lanes are 2..5. Primary gameplay-X boundaries include `-850, -425, 0, +425, +850`, with a real native seam where exactly `x == +425` yields no primary lane. A touch-width scale can add an adjacent lane candidate.
-
-Ordinary floor taps and Holds match their `NotePosition.laneId` against primary or adjacent lane candidates.
-
-## 6. CONFIRMED point-note timing judgement
-
-Touch-begin builds a temporary spatially eligible candidate list and sorts it by note timestamp. `LogicTapNote` and `LogicArcTapNote` then use the same point timing routine.
-
-Inclusive candidate bands:
+Inclusive point candidate windows:
 
 ```text
 |error| <= 25 ms   -> MAX PURE
 |error| <= 50 ms   -> PURE
 |error| <= 100 ms  -> FAR
-|error| <= 120 ms  -> LOST via the real ScoreState miss path
-> 120 ms           -> candidate routine rejects the attempt
+|error| <= 120 ms  -> LOST through ScoreState
+>120 ms            -> candidate routine rejects this attempt
 ```
 
-For Pure/Far, current time before note time maps to reconstructed Early side value 1, and current time at/after note time maps to reconstructed Late value 2. MaxPure uses side 0.
+Pure/Far carry Early/Late side information. Automatic scheduling can independently miss overdue notes, so the candidate window is not claimed as a universal symmetric play window.
 
-The `<=120` branch describes this candidate routine. Automatic scheduling can independently resolve overdue notes, so it should not be overinterpreted as a universally reachable symmetric late window.
+## ScoreState / LifeBarState
 
-## 7. CONFIRMED ScoreState flow
-
-Successful judgement ordering:
+Successful judgement order:
 
 ```text
-note virtual accept-success hook
-        ↓ if accepted
-increment judgement counters
-        ↓
-fan judgement to EVERY active LifeBarState
-        ↓
-record timing/statistics
+note accepts success
+  -> score counters
+  -> every active LifeBarState
+  -> timing/statistics
 ```
 
-Counter behaviour:
+LOST uses a separate note-acceptance path, increments LOST and fans out to all life bars.
 
-- MaxPure increments both MaxPure count and broad Pure count.
-- Pure increments broad Pure count.
-- Far increments Far count.
-
-LOST is a separate ScoreState entry path:
-
-```text
-note virtual accept-LOST hook
-        ↓ if accepted
-increment LOST count
-        ↓
-fan LOST to every LifeBarState
-```
-
-## 8. CONFIRMED baseline Recollection propagation
-
-Important `LifeBarState` fields include current Recollection Rate at `+0x10`, Recollection Factor at `+0x8C`, LOST scale percent at `+0x98`, gauge mode at `+0xA0`, and `CharacterAbility*` at `+0xC8`.
-
-Recollection Factor by chart note count `N`:
+Baseline Recollection:
 
 ```cpp
 if (N < 400)      RF = 0.2 + 80/N;
@@ -367,38 +228,17 @@ else if (N < 600) RF = 0.2 + 32/N;
 else              RF = 0.08 + 96/N;
 ```
 
-An observed flag can multiply RF by `0.8`.
+MAX PURE/PURE gain RF; FAR gains half RF. Long-note LOST events receive half ordinary-note damage before further modifiers. Detailed special partner/gauge systems remain outside the baseline section.
 
-Successful baseline gain:
+## Long-note event model
 
-```text
-MAX PURE / PURE -> +RF
-FAR             -> +0.5 RF
-```
-
-Standalone LOST baseline:
-
-```text
-Normal -> 2.0
-Easy   -> 1.2
-Hard   -> 9.0 above 30 RR, 5.0 at/below 30 RR
-```
-
-A LOST event from `LogicLongNoteBase` receives half the standalone-note damage before further scaling. `lossScalePercent` applies `/100`. CharacterAbility hooks can modify gain/loss. Hard gauge has a confirmed special correction when one loss crosses from above 30 to below 30. Common application clamps to the permitted gauge range.
-
-This section intentionally does not expand every special partner/gauge ability.
-
-## 9. CONFIRMED common long-note event system
-
-Holds and judged Arc bodies share `LogicLongNoteBase`.
-
-A long note owns 12-byte internal events:
+`LogicLongNoteBase` owns repeated 12-byte events:
 
 ```cpp
 struct LongTickEvent {
     int time;
-    int scoreUnits;      // reconstructed name; common builder writes 1
-    byte processedFlags; // bit 0 = processed
+    int scoreUnits;      // common builder writes 1
+    byte processedFlags; // bit0 = processed
 };
 ```
 
@@ -410,230 +250,400 @@ subdivision = abs(rawBpm) >= 255 ? 1 : 2;
 tickInterval = beatMs / subdivision / TimingPointDensityFactor;
 ```
 
-So below 255 BPM the common cadence is half-beat before density scaling; at/above 255 BPM it is full-beat before density scaling.
+Success horizon is `now + 0.5*tickInterval`.
 
-Ordinary generated candidate timestamps exclude the exact end time. A non-zero long note that would otherwise produce no event receives a midpoint event.
+Ordinary LOST horizon is `now - min(2*tickInterval,500ms)`.
 
-Successful long-event eligibility uses:
+Successful long units enter ScoreState as judgement class 0/side 0 rather than point timing bands.
 
-```text
-now + 0.5 * tickInterval
-```
+## Hold
 
-Overdue LOST normally uses:
+Hold touch-begin establishes persistent engagement; per-frame current contact at `+0x64/+0x65` is cleared and refreshed from active touches immediately before long-event judgement. Releasing does not instantly lose a pending event; it ages toward the long-event LOST cutoff. Re-press before expiry can recover still-pending events.
 
-```text
-now - min(2 * tickInterval, 500 ms)
-```
+## Arc
 
-Each processed scoring unit calls ScoreState independently. Successful long units enter as judgement 0 / side 0 / payload -1, rather than using point-note timing bands.
+Judged Arc bodies share the long-note event system but require per-frame geometric contact plus `LogicColor` touch ownership.
 
-## 10. CONFIRMED Hold state machine
+Relevant state includes:
 
-Touch-begin can engage a matching Hold when lane identity matches and:
+- Arc body mode `+0xA4`
+- `LogicColor* +0xB0`
+- active/current path state around `+0xD0/+0xD4/+0xD8`
+- `LogicArcGroup* +0xE0`
+- ArcTap child vector `+0x120`
 
-```text
-now < hold.end
-hold.start < now + 100 ms
-```
+Only body mode 0 uses ordinary Arc-body judgement. Mode 1/2 bodies are nonjudged through this common path.
 
-This means Hold acquisition is not restricted to one exact start-time hit.
-
-A persistent Hold engagement flag around `+0xA8` is distinct from the transient current-contact bytes `+0x64/+0x65`.
-
-Every update clears transient contact. Active matching touches re-latch it immediately before long-event judgement.
-
-Consequences:
-
-- continuous contact -> eligible ticks succeed;
-- release -> contact stops refreshing, but pending ticks do not instantly become LOST;
-- re-press before pending tick expiry can recover still-unprocessed events;
-- once an event is processed as LOST it cannot be recovered;
-- mid-Hold pickup is possible while earlier already-expired ticks stay LOST.
-
-`fadingholds` survives in runtime Hold state but belongs to presentation feedback rather than timing arithmetic.
-
-## 11. CONFIRMED Arc-body runtime logic
-
-`LogicArcNote` shares the long-note event system but has a different definition of valid contact.
-
-Important runtime fields/state include:
-
-- `+0xA0` connected-continuation flag (reconstructed name)
-- `+0xA4` Arc body mode
-- `+0xB0` `LogicColor*`, native RTTI identity confirmed
-- `+0xD0` active/playable Arc state
-- `+0xD4/+0xD8` cached current expected Arc gameplay position
-- `+0xE0` `LogicArcGroup*`
-- `+0x120` attached LogicArcTapNote vector
-- `+0x170` special runtime capability flag; special-system details are deferred from the baseline model
-
-Arc body mode:
-
-- 0 = ordinary judged body
-- 1 = true/trace/skyline-like nonjudged body
-- 2 = native DESIGNANT mode
-
-Runtime can auto-promote mode 0 to mode 1 when ArcTap children are present.
-
-Only mode 0 participates in ordinary Arc-body contact and ordinary long-note success/LOST accounting.
-
-## 12. CONFIRMED Arc geometry + LogicColor ownership
-
-Arc contact is rebuilt every frame.
-
-Normal flow:
+`LogicColor` combines colour/channel identity with touch-ID ownership. Ordinary release can start a separate re-acquisition lockout:
 
 ```text
-current Arc path point / active phase
-        ↓
-touch transformed into gameplay/sky space
-        ↓
-camera/screen-scaled Arc hit-region test
-        ↓
-LogicColor touch ownership acceptance
-        ↓
-Arc +0x64/+0x65 current-contact latch
-        ↓
-shared long-note tick success/LOST machinery
+min(4*tickInterval,1000ms)
 ```
 
-The spatial helper is not a simple `distance <= 212` circle. Native code constructs camera/screen-scaled axis bounds using the nominal 212 value plus other transforms.
+This is mechanically distinct from long-event LOST grace `min(2*tickInterval,500ms)`.
 
-Touch-begin Arc acquisition uses the same geometric family with approximately +120 ms lookahead toward Arc start.
+Connected Arc pieces use `LogicArcGroup`. Continuations are recognised around <=9 ms time separation, <0.1 X separation and matching Y endpoint. Continuation flag `+0xA0` is set; if X or Y motion direction changes, `+0x6C` is set and controls the special first-event expiry branch.
 
-`LogicColor` combines colour-channel identity with Arc touch ownership. Same-channel Arcs can share a LogicColor object. Ordinary channels coordinate through a global claimed-touch-ID set.
+## ArcTap
 
-Ordinary LogicColor ownership rules include:
+`LogicArcTapNote : LogicTapNote`. Parent Arc path construction caches its spatial point. Touch-begin discovers it through the parent Arc and performs sky/gameplay-space filtering; then it uses the ordinary point timing routine. Parent Arc current body contact is not required.
 
-- active release lockout rejects touches;
-- same assigned touch ID has a direct acceptance path;
-- a different touch does not simply replace an ordinary still-assigned touch;
-- an unassigned channel can freshly claim only a globally unclaimed touch ID;
-- channel ID 3 bypasses ordinary exact-ID ownership checks after geometry;
-- nearby Arc conditions can temporarily relax exact-ID ownership.
+## Core frame ordering
 
-On ordinary release, assignment and global claim are removed immediately, but re-acquisition can be locked out for:
+Two judgement entrances exist:
 
 ```text
-min(4 * tickInterval, 1000 ms)
+touch begin -> candidate selection -> immediate point judgement
 ```
 
-This is separate from the long-event LOST grace `min(2*tickInterval,500 ms)`.
-
-## 13. CONFIRMED connected Arc continuity
-
-Connected Arc pieces are postprocessed using near-contiguous endpoints, including:
+and:
 
 ```text
-abs(next.start - previous.end) <= 9 ms
-abs(next.xStart - previous.xEnd) < 0.1
-next.yStart == previous.yEnd
+update gameplay/spatial state
+ -> reset current contact/ownership-frame state
+ -> active-touch refresh
+ -> common scheduler / auto-miss / long-event judgement
 ```
 
-Accepted continuation pieces receive `+0xA0 = 1`.
+The important proven order is active-touch refresh immediately before long-note scheduling, so Hold/Arc ticks see current-frame contact.
 
-If horizontal or vertical movement direction changes across the seam, the continuation receives `+0x6C = 1`. This same flag controls the previously mysterious special first-event overdue branch in the common long-note event scanner.
+---
 
-`LogicArcGroup` carries per-frame shared contact/timing state across connected pieces. Its contact bytes are reset each frame and refreshed by qualifying member Arc contact.
+# Most recent completed task: Section 04 — gameplay rendering
 
-## 14. CONFIRMED ArcTap runtime logic
+Durable file: `deepdive/04_gameplay_rendering.cpp`.
 
-ArcTap remains a point note:
+Section 04 closes the mechanic-facing renderer from LogicNote/RenderNote pairing through note presentation, Arc tessellation, Hold/contact feedback, track/scene visual controls, camera movement, and the GameScene GL-state boundary.
+
+## 1. CONFIRMED LogicNote <-> RenderNote pairing
+
+The central render factory stores reciprocal links:
 
 ```text
-LogicArcNote body -> LogicLongNoteBase repeated ticks
-LogicArcTapNote   -> LogicTapNote one-shot timing judgement
+LogicNote  +0x40 = RenderNote*
+RenderNote +0x2A8 = LogicNote*
 ```
 
-Parent Arc path building evaluates each ArcTap timestamp through the same Arc easing/path machinery and caches a gameplay-space point in the child.
+Gameplay logic owns judgement/input/path state. Render objects own Cocos scene nodes, sprites, models, textures, mesh pieces and opacity.
 
-Touch-begin discovers ArcTap children through their parent Arc, spatially filters them in sky/gameplay space, and inserts qualifying children into the same timestamp-sorted point candidate vector used by other point notes.
-
-ArcTap then uses the exact common point timing windows.
-
-Parent Arc current body contact is not required for ArcTap judgement.
-
-ArcTap hit/LOST overrides resolve local state first. If parent Arc mode == 2, they then veto normal ScoreState accounting; other modes use ordinary point-note score/gauge flow.
-
-Automatic ArcTap miss processing is parent-owned and contains an overdue `> childTime + 100 ms` branch.
-
-## 15. CONFIRMED touch lifetime
-
-`GameModel::initializeTouchEvents()` installs four Cocos touch callbacks.
-
-Touch-begin retains/registers `Touch*` in GameModel's active collection, performs gameplay-space candidate work, can immediately judge point notes, and can establish Hold/Arc acquisition state.
-
-Touch-end/cancel removes and releases the Touch object and propagates release into Hold/LogicColor/Arc ownership state.
-
-Gameplay therefore works from GameModel-managed active Cocos touches, not by having every note poll raw Android touch state.
-
-## 16. CONFIRMED logic-critical update order
-
-The core runtime has **two judgement entrances**.
-
-### Event-driven touch-begin path
+Factory dispatch:
 
 ```text
-finger begins
-  ↓
-project touch / build candidates
-  ↓
-sort point candidates by timestamp
-  ↓
-try point judgement immediately
-  ↓
-ScoreState immediately
-  ↓
-LifeBarState fan-out immediately
+LogicTapNote   -> RenderTapNote
+LogicHoldNote  -> RenderHoldNote
+LogicFlickNote -> RenderFlickNote   (dormant consumer)
+LogicArcNote   -> RenderArcTapNote children + RenderArcNote parent
 ```
 
-### Frame/scheduler path
+Approximate sizes:
 
-The investigated main GameModel update contains this confirmed core ordering:
+- RenderTapNote 0x2D0
+- RenderHoldNote 0x2E0
+- RenderArcTapNote 0x2E0
+- RenderFlickNote 0x2D0
+
+The factory registers top-level renderers in a common renderer collection. Exact global cross-family z-order remains unresolved.
+
+## 2. CONFIRMED common spatial handoff
+
+Renderers consume already-computed runtime state, including `NotePosition`, current depth/path state, active TimingEvent spatial values, hidegroup flag and Arc path samples. They do not rerun ScoreState judgement.
+
+This is the core responsibility boundary:
 
 ```text
-1. derive/update effective gameplay time and spatial/timing state
-2. update/reset per-frame Arc/contact/LogicColor/ArcGroup state
-3. active-touch refresh                  (~0x14858D4)
-     - Hold contact re-latched
-     - Arc geometry + LogicColor contact re-latched
-4. common scheduler / auto-miss / long-event judgement (~0x0F8056C)
-     - resolved notes skipped
-     - overdue point-like notes -> LOST
-     - long notes: current contact selects success vs overdue LOST collector
-     - ArcTap automatic-miss checks
-     - ScoreState calls happen synchronously
-5. later session/special-scene state continues outside this baseline chapter
+logic decides where/state
+renderer decides how it looks
 ```
 
-The key proven ordering is **active-touch refresh before long-note scheduler/judgement**. Long-note ticks therefore see this update's contact state, not stale contact from the prior update.
+## 3. CONFIRMED Tap rendering
 
-## 17. Dormant Flick boundary strengthened
+Assets include:
 
-This binary contains:
+- `img/note.png`
+- `img/note_dark.png`
+- `img/note_tomato.png`
 
-- live chart Flick parser/source class;
-- `LogicFlickNote` RTTI;
-- surviving downstream gesture/expiry handlers;
-- `RenderFlickNote` support;
+Discrete lane X uses:
 
-but no `LogicFlickNote` class vtable and no runtime producer. Every LogicFlickNote RTTI code reference is a consumer/type test. Therefore the build cannot instantiate a valid most-derived LogicFlickNote object through the normal C++ polymorphic route. Treat Flick as dormant historical scaffolding in this target build.
+```cpp
+x = (laneId - 1) * 425 - 1063;
+```
 
-Do not guess the absent chart-float -> runtime Flick hit-region producer formula.
+Tap root uses Y=4 and runtime depth as scene Z.
 
-## Section 03 unresolved/deferred details
+Direct disassembly newly rechecked in Section 04 proves ordinary horizon opacity:
 
-These do **not** block the fundamental runtime model:
+```cpp
+alpha = clamp((depth + 9000) / 1000, 0, 1) * 255;
+```
 
-- exact original semantic names for several common contact/event bytes such as `+0x64/+0x65/+0x66`;
-- original name of LogicNote `+0x10` input/hit payload;
-- exact original names of several LogicArcGroup fields;
-- developer rationale for the direction-change `+0x6C` first-event treatment;
-- full special-system meaning of Arc `+0x170`, although baseline interactions are known in prior root chapters;
-- exact final Arc/ArcTap camera-scaled hit-region dimensions belong to gameplay-space/render investigation;
-- exact original semantic name for CameraControl's second Vec3;
-- final displayed numerical-score formula was not reconstructed in this section; judgement counters, resolution and gauge propagation are complete.
+Thus Tap is transparent at/before depth -9000, fades through approximately -9000..-8000, and reaches full ordinary opacity by about -8000.
+
+A render byte around `+0x2B4` optionally multiplies an additional:
+
+```cpp
+clamp((-depth) / 8700, 0, 1)
+```
+
+Its exact semantic trigger/name remains unresolved.
+
+Tap textured-quad geometry is also rewritten with approach depth. Directly rechecked native arithmetic is approximately:
+
+```cpp
+speedFactor = clamp(effectiveSpatialBpm / 400, 1, 1.5);
+approach = (-depth / 10000) * speedFactor;
+longitudinalExtent = int(200 + 340 * approach);
+localHalfWidth = 191;
+```
+
+This is presentation geometry, not judgement.
+
+`hidegroup` ultimately forces presentation opacity to zero while `noinput` remains the separate input gate.
+
+## 4. CONFIRMED Hold rendering and fadingholds
+
+Hold uses one stretched body rather than one sprite per internal tick.
+
+Normal assets include:
+
+- `img/note_hold.png`
+- `img/note_hold_dark.png`
+- `img/note_hold_tomato.png`
+
+Highlighted contact variants include corresponding `_hi` textures.
+
+Current Hold contact chooses highlight presentation. Body length is derived from current/start/end depth.
+
+`fadingholds` is presentation feedback. With no current contact after start:
+
+- latest LOST batch -> 0.5 intensity
+- after a successful batch, next unprocessed event defines:
+
+```cpp
+horizon = nextTick.time + 2*tickInterval;
+intensity = clamp(0.5 + (horizon-now)/500, 0.5, 1.0);
+```
+
+This multiplies ordinary opacity and does not alter judgement timestamps.
+
+## 5. CONFIRMED ArcTap rendering
+
+ArcTap rendering is a small 3D model, not the ordinary floor sprite. Surviving models include:
+
+- `models/tap_l.obj`
+- `models/tap_d.obj`
+- `models/tap_tomato.obj`
+- `models/sfx_l.obj`
+- `models/sfx_d.obj`
+
+Parent Arc path construction supplies the cached spatial point consumed by RenderArcTapNote.
+
+## 6. CONFIRMED dual Arc tessellations
+
+LogicArcNote owns two Vec3 sample vectors of the same analytic Arc:
+
+```text
++0xE8  -> gameplay/contact polyline
++0x100 -> denser renderer polyline
+```
+
+Base density uses:
+
+```text
+nominal duration < 1000ms -> 14
+otherwise                 -> 7
+```
+
+Chart Arc optional float becomes runtime `+0x118`, clamped to at least 1. It multiplies **only the render tessellation**:
+
+```text
+gameplayStep ~= 1/(D*B)
+renderStep   ~= 1/(D*B*M)
+```
+
+So increasing this field visually smooths the Arc without increasing contact/hit-polyline resolution.
+
+Connected continuations may extend effective sampling end only within the already-proved tiny <=9ms seam tolerance.
+
+## 7. CONFIRMED Arc ribbon scene graph
+
+RenderArcNote walks consecutive +0x100 samples and creates one ribbon segment per adjacent pair. Each segment generates four corners around two endpoints, so the visible Arc is a quad/ribbon strip, not a line primitive.
+
+Arc assets include `img/arc_body.png` and `img/arc_body_hi.png`.
+
+Selected RenderArcNote children:
+
+```text
++0x2B8 body segment container
++0x2C0 ArcTap render container
++0x2D0 Arc cap sprite
+         + optional approach arrow
+```
+
+Assets include `img/1080/arc_cap.png` and `img/1080/approach_arrow.png`. Arc particles are separate emitter nodes/resources rather than ribbon pieces.
+
+## 8. CONFIRMED timinggroup angle render transforms
+
+Source angle integers are tenths of a degree:
+
+```cpp
+radians = raw * PI / 180 / 10;
+```
+
+Runtime uses roughly `LogicNote +0x58` for X angle and `+0x5C` for Y angle. Arc renderer applies corresponding X/Y rotation matrices to visual geometry.
+
+The common touch unprojection path does not rotate the screen-touch ray by these same matrices. Therefore these angle modifiers are visual/spatial note transforms, not a rewrite of raw input projection.
+
+## 9. CONFIRMED Arc colour/opacity presentation
+
+Traced `tracecol` render consumers treat metadata presence as a dedicated gold trace branch:
+
+```text
+RGB(244,185,66)
+img/trace_body_gold.png
+```
+
+Important limitation: although parser source stores arbitrary R/G/B integers, this excavation did not trace a consumer that renders arbitrary custom RGB. Do not claim arbitrary `tracecolRRGGBB` output without new evidence.
+
+DESIGNANT/body mode 2 uses hot pink/red family RGB(240,41,97). Root and segment opacities scale separately from a global factor, approximately `factor*125` and `factor*225`.
+
+`LogicColor` rejection-feedback presentation can blend judged Arcs toward RGB(230,50,50). The warning colour state is separate from the mechanical ownership/re-acquisition lockout.
+
+## 10. CONFIRMED common opacity and hidegroup
+
+Render-note virtuals around the established opacity slots behave consistently as opacity get/set methods.
+
+`hidegroup` writes runtime visibility state to matching notes and ArcTap children. Renderer paths consume it and suppress presentation. Input paths continue to use `noinput`/`+0x54` separately.
+
+## 11. CONFIRMED track/widen presentation
+
+`enwidenlanes` activates pre-existing outer gameplay lane IDs 1 and 6; it does not move lane centres.
+
+Track resources include:
+
+- `img/track_extralane_light.png`
+- `img/track_extralane_dark.png`
+
+A native `track_custom_mask_shader` uses uniforms such as `z_clip`, `texture_mask`, `mask_inverse`, `texture_height`, `track_width`, `fixed_x_pos`, and `model_width` to carve/mask visible track artwork in track space. This changes presentation without rewriting lane geometry.
+
+`enwidencamera` has a presentation compensation:
+
+```cpp
+factor = 1 - (cameraWidenScale - 1) * 2/3;
+```
+
+A traced Tap branch applies approximately `factor*130` opacity to auxiliary child nodes while leaving the main child separate. This consumer is opacity compensation, not note geometry scaling.
+
+## 12. CONFIRMED SceneControl visual effects
+
+Runtime mapping:
+
+```text
+trackdisplay  -> 0
+redline       -> 1
+arcahvdistort -> 2
+arcahvdebris  -> 3
+hidegroup     -> 4
+enwidencamera -> 5
+enwidenlanes  -> 6
+```
+
+`trackdisplay` uses 100-step quadratic interpolation:
+
+```cpp
+p = step/100;
+value = start + (target-start)*p*p;
+```
+
+The scheduler interval is `floatParameter/100`. Background darkening uses `img/bg/bg_darken.png`.
+
+`redline` creates `img/redline.png`, animates it and removes it after the float-parameter lifetime.
+
+`arcahvdistort` fades prepared node `ARCAHV_DISTORT` / `img/bg/arcahv-srt.png` to the low 8 bits of intParameter over floatParameter duration.
+
+`arcahvdebris` similarly fades prepared animated container `ARCAHV_DEBRIS` / `img/bg/arcahv-debris.png`.
+
+These branches are presentation-side; widening types also have gameplay-space effects already documented in Section 03/root chapters.
+
+## 13. CONFIRMED CameraController movement
+
+Retained lambda type proves `CameraController::animateMovingCameraTo(Vec3,float)`.
+
+Direct disassembly in Section 04 additionally confirms:
+
+- CameraController owns two scene/camera-like nodes around `+0x2A8/+0x2B0`.
+- duration 0 sets both immediately to target Vec3.
+- nonzero duration uses scheduler key `moveCamera`.
+- step count is approximately `int(duration*60)`.
+- interval is `duration/stepCount`, approximately 60 Hz.
+- callback reads current position, uses quadratic progress and applies the same Vec3 to both nodes.
+
+Readable coordinate update:
+
+```cpp
+p = step / totalSteps;
+next = current + (target-current) * p*p;
+```
+
+Exact high-level identities of the two nodes remain unresolved. The source CameraControl second Vec3 remains strongly reconstructed as a separate orientation/rotation family, but no original method name is claimed without equally strong evidence.
+
+## 14. CONFIRMED GameScene render GL-state boundary
+
+A retained lambda type is explicitly scoped inside:
+
+```text
+GameScene::render(Renderer*, const Mat4&, const Mat4*)::$_6
+```
+
+Its callback executes:
+
+```cpp
+glDisable(GL_DEPTH_TEST);
+glDisable(GL_STENCIL_TEST);
+glDepthMask(false);
+glDisable(GL_BLEND);
+```
+
+Therefore the gameplay scene explicitly restores/brackets low-level GL state rather than leaking gameplay 3D/depth/blend state indefinitely into later Cocos drawing.
+
+Exact placement of this custom command relative to every other scene command remains unresolved, so do not claim a pixel-perfect global draw-order table from this callback alone.
+
+## 15. Reconstructed full render pipeline
+
+```text
+runtime logic computes position/contact/path/visibility state
+                         ↓
+               LogicNote <-> RenderNote
+                         ↓
+        Tap/Hold/Arc/ArcTap presentation
+                         ↓
+        Track masks / SceneControl visual state
+                         ↓
+                  Cocos scene graph
+                         ↓
+              CameraController transforms
+                         ↓
+                  cocos2d Renderer
+                         ↓
+        GameScene explicit GL-state boundary/reset
+```
+
+The central durable rule is:
+
+> Logic decides where the note is and what gameplay state it is in. Renderer decides how that state is shown.
+
+Renderer-side feedback does not replace judgement.
+
+## Section 04 unresolved/deferred details
+
+These do **not** block the mechanic-facing renderer model:
+
+- exact global z-order among every top-level note/track/effect node;
+- exact original identity/name of CameraController `+0x2A8/+0x2B0` child nodes;
+- exact original method/name for CameraControl's second orientation Vec3;
+- exact semantic name/trigger of RenderTapNote byte `+0x2B4` controlling the additional near-depth alpha factor;
+- whether any untraced consumer renders arbitrary parser-stored tracecol RGB rather than the confirmed fixed gold branch;
+- pixel-perfect particle/action nesting and generic Cocos internals unrelated to Arcaea mechanics.
 
 ---
 
@@ -641,14 +651,13 @@ These do **not** block the fundamental runtime model:
 
 **Completed:**
 
-1. `deepdive/01_gameplay_architecture.cpp` — high-level source/runtime/render architecture and class families.
-2. `deepdive/02_chart_source_data.cpp` — AFF/header/parser/source object model, timing groups, NotePosition, Timing, SceneControl, CameraControl, Arc source representation, ArcTap timestamps, sampling density, DESIGNANT source state, dormant Flick source scaffolding.
-3. `deepdive/03_runtime_gameplay_logic.cpp` — source-to-runtime construction, shared gameplay clock, LogicTimingEvent/highspeed split, common LogicNote state, floor lane candidate selection, point judgement windows, ScoreState and baseline LifeBar/Recollection fan-out, long-note tick construction and expiry, Hold state machine, Arc body contact/LogicColor ownership/connected groups, ArcTap judgement, touch lifetime, and logic-critical update order.
+1. `deepdive/01_gameplay_architecture.cpp` — source/runtime/render class architecture.
+2. `deepdive/02_chart_source_data.cpp` — AFF/header/parser/source objects, timing groups, NotePosition, source Timing/SceneControl/Camera/Arc, ArcTap timestamps, DESIGNANT source state, dormant Flick source path.
+3. `deepdive/03_runtime_gameplay_logic.cpp` — source-to-runtime construction, timing/highspeed split, point judgement, ScoreState/LifeBar fan-out, long-note events, Hold/Arc/ArcTap state machines, LogicColor ownership, touch lifetime and core frame ordering.
+4. `deepdive/04_gameplay_rendering.cpp` — LogicNote/RenderNote bridge, Tap/Hold/ArcTap/Arc presentation, Tap horizon fade and approach quad deformation, fadingholds feedback, dual Arc tessellations and ribbon construction, Arc colour/opacity modes, hidegroup, widening/track masking, SceneControl visuals, CameraController movement, and GameScene GL-state reset boundary.
 
-**Most recent task:** Finish the remaining runtime gameplay logic. This is now complete.
+**Most recent task:** Move from runtime logic into gameplay rendering. This section is now complete at the mechanic-facing level.
 
-**What is not unfinished Section 03:** rendering implementation, exact path/mesh formulas, scene-control visual effects, camera rendering transforms, note presentation/opacity/effects, and other renderer-facing state. Those belong to the next gameplay-rendering sections.
+**Remaining rendering unknowns are bounded implementation details**, primarily exact global z-order, a few original field names, and pixel-perfect Cocos/GPU command sequencing. They are not treated as missing foundational gameplay-render behaviour.
 
-**Natural next direction inside the user's border:** move into gameplay rendering from the runtime side, preferably starting with the common `LogicNote <-> RenderNote` pairing and render lifecycle, then individual Tap/Hold/Arc/ArcTap rendering. The repo root already contains `15_rendering_fundamentals.cpp` and `22_rendering_refinements.cpp`; consult them first and use the current binary to consolidate/verify rather than restarting from zero.
-
-**Scope restriction:** main gameplay and gameplay rendering only until the user explicitly expands it.
+**Natural next direction inside the user's border:** either drill deeper into one renderer family (for example exact Arc ribbon/segment geometry and materials, exact Tap/Hold mesh vertices, track/camera projection matrices), or return to a gameplay mechanic that depends on the now-complete source/runtime/render stack. Do not leave main gameplay/gameplay rendering scope unless the user explicitly widens it.
