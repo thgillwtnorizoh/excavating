@@ -11,9 +11,11 @@
 // Evidence labels:
 //   CONFIRMED     = directly supported by native data/control flow/constants.
 //   RECONSTRUCTED = readable semantic structure assembled from confirmed facts.
-//   UNRESOLVED    = exact original name/order/design reason is not proved.
+//   UNRESOLVED    = exact original name/design reason is not proved.
 //
-// Scope: main gameplay rendering only.
+// Scope: main gameplay rendering only. Gameplay HUD/UI is intentionally split
+// into Deep Dive Section 05 because core gameplay and note rendering can operate
+// without that overlay layer.
 
 #include <algorithm>
 #include <cmath>
@@ -37,28 +39,34 @@ struct RenderHoldNote;
 struct RenderArcNote;
 struct RenderArcTapNote;
 struct RenderFlickNote;
+struct CameraController;
+
+static float clamp01(float x)
+{
+    return std::max(0.0f, std::min(1.0f, x));
+}
 
 // ============================================================================
-// 1. CONFIRMED: logic and rendering are reciprocal, separate objects
+// 1. CONFIRMED: Logic* and Render* are separate reciprocal objects
 // ============================================================================
 
-// The central renderer factory stores both directions:
+// Central bridge:
 //
-//     LogicNote  +0x40 = RenderNote*
+//     LogicNote  +0x40  = RenderNote*
 //     RenderNote +0x2A8 = LogicNote*
 //
-// Gameplay judgement/path state therefore remains on Logic* objects while the
-// Render* side owns Cocos nodes, sprites, models, textures, meshes and opacity.
+// Logic owns judgement/input/timing/path state.
+// Render objects own Cocos nodes, sprites, models, textures, geometry and opacity.
 
 struct LogicNoteRenderLink {
-    RenderNote* renderer;            // conceptual common +0x40
+    RenderNote* renderer; // conceptual +0x40
 };
 
 struct RenderNoteLogicLink {
-    LogicNote* logic;                // conceptual common +0x2A8
+    LogicNote* logic;     // conceptual +0x2A8
 };
 
-// Approximate allocation sizes confirmed in this build:
+// Approximate allocations in this build:
 //     RenderTapNote     0x2D0
 //     RenderHoldNote    0x2E0
 //     RenderArcTapNote  0x2E0
@@ -66,23 +74,35 @@ struct RenderNoteLogicLink {
 // RenderArcNote is larger and owns additional child containers/vectors.
 
 // ============================================================================
-// 2. CONFIRMED: central LogicNote -> RenderNote factory
+// 2. CONFIRMED: central renderer factory and camera-mask partition
 // ============================================================================
+
+// The factory dispatches by LogicNote runtime type. Flick handling survives only
+// as dormant downstream scaffolding because this build has no live LogicFlickNote
+// producer/vtable.
+//
+// Important refinement from the later pass:
+//     ordinary RenderTapNote uses camera mask 0x04
+//     RenderArcTapNote uses camera mask 0x10
+//
+// Track/presentation setup also assigns selected children to masks 4 and 16.
+// Therefore global gameplay presentation is first partitioned by camera mask,
+// then ordered by the Cocos scene/render machinery inside each camera pass.
 
 RenderNote* makeRenderer(LogicNote& note)
 {
     if (auto* tap = dynamicCast<LogicTapNote>(&note)) {
-        return createRenderTapNote(*tap);
+        RenderTapNote* r = createRenderTapNote(*tap);
+        r->setCameraMask(0x04, true);
+        return r;
     }
 
     if (auto* hold = dynamicCast<LogicHoldNote>(&note)) {
         return createRenderHoldNote(*hold);
     }
 
-    // This consumer survives although the investigated build has no live
-    // LogicFlickNote producer/vtable. It is dormant downstream scaffolding.
     if (auto* flick = dynamicCast<LogicFlickNote>(&note)) {
-        return createRenderFlickNote(*flick);
+        return createRenderFlickNote(*flick); // dormant producer side
     }
 
     if (auto* arc = dynamicCast<LogicArcNote>(&note)) {
@@ -90,6 +110,7 @@ RenderNote* makeRenderer(LogicNote& note)
 
         for (LogicArcTapNote* child : arc->arcTaps) {
             RenderArcTapNote* r = createRenderArcTapNote(*child, *arc);
+            r->setCameraMask(0x10, true);
             child->renderer = r;
             children.push_back(r);
         }
@@ -100,15 +121,24 @@ RenderNote* makeRenderer(LogicNote& note)
     return nullptr;
 }
 
-// The factory also registers each top-level RenderNote into a common renderer
-// collection. Exact final cross-family z-order is intentionally left unresolved;
-// internal Arc child structure is better proved below.
+// CONFIRMED architecture:
+//
+//                    gameplay scene
+//                          |
+//              +-----------+-----------+
+//              |                       |
+//         camera mask 4           camera mask 16
+//              |                       |
+//        one render group         another render group
+//
+// Exact same-priority camera traversal order is not encoded as a separate
+// Arcaea-specific depth/priority value in the recovered CameraController setup.
 
 // ============================================================================
-// 3. CONFIRMED: RenderNote consumes logic-side spatial state
+// 3. CONFIRMED: RenderNote consumes already-computed logic state
 // ============================================================================
 
-// Important established LogicNote inputs consumed by renderers:
+// Important LogicNote inputs consumed by renderers include:
 //     +0x20 NotePosition* / horizontal descriptor
 //     +0x30 current approach/depth state
 //     +0x34 related end/depth state (important for Holds)
@@ -117,18 +147,18 @@ RenderNote* makeRenderer(LogicNote& note)
 //     +0x58 angleX radians
 //     +0x5C angleY radians
 //
-// Renderers do not recompute judgement and do not replace ScoreState.
+// Renderers do not re-run judgement and do not replace ScoreState.
 
 // ============================================================================
-// 4. CONFIRMED: floor Tap rendering
+// 4. CONFIRMED: floor Tap rendering and horizon fade
 // ============================================================================
 
-// Surviving assets:
+// Assets:
 //     img/note.png
 //     img/note_dark.png
 //     img/note_tomato.png
 //
-// Discrete lane X uses the fixed six-slot geometry:
+// Discrete lane X:
 //     x = (internalLaneId - 1) * 425 - 1063
 //
 // Root Y is 4; Z/depth comes from LogicNote +0x30.
@@ -142,20 +172,13 @@ Vec3 tapWorldPosition(const LogicTapNote& tap)
     };
 }
 
-// Newly rechecked directly in this pass: ordinary Tap horizon opacity.
-// Let d = LogicNote +0x30 depth. The native arithmetic is equivalent to:
+// Ordinary far-distance fade:
 //
-//     alpha = clamp((d + 9000) / 1000, 0, 1) * 255
+//     horizon = clamp((depth + 9000) / 1000, 0, 1)
 //
-// Therefore:
-//     d <= -9000  -> transparent
-//     -9000..-8000 -> fade in
-//     d >= -8000  -> full ordinary opacity
-
-static float clamp01(float x)
-{
-    return std::max(0.0f, std::min(1.0f, x));
-}
+//     depth <= -9000   -> transparent
+//     -9000..-8000     -> fade in
+//     depth >= -8000   -> full ordinary opacity
 
 int tapHorizonOpacity(float depth)
 {
@@ -163,19 +186,69 @@ int tapHorizonOpacity(float depth)
         clamp01((depth + 9000.0f) / 1000.0f) * 255.0f);
 }
 
-// A render-side byte around +0x2B4 selects an additional multiplier:
-//
-//     clamp((-depth) / 8700, 0, 1)
-//
-// Exact semantic trigger/name of this byte is UNRESOLVED. Preserve it as a
-// conditional presentation factor rather than inventing a game-design label.
+// ============================================================================
+// 5. CONFIRMED: RenderTapNote +0x2B4 = special approach fade behaviour
+// ============================================================================
 
-float optionalTapNearFactor(float depth)
+// Later excavation resolves the old anonymous byte around RenderTapNote +0x2B4.
+// The factory builds precomputed chart-time ranges. A Tap receives the byte when:
+//
+//     range.start <= tap.timestamp <= range.end
+//
+// In the observed special mode 6, the range helper contains hard-coded song-ID
+// tables including:
+//
+//     arghena
+//     cataclysmcry
+//     rivenpilgrim
+//     un
+//
+// Another observed mode value 1 creates a broad range beginning at zero and
+// ending at a session/chart-derived endpoint.
+//
+// The exact original name of the higher-level mode enum remains UNRESOLVED, but
+// the render-byte effect itself is CONFIRMED.
+//
+// When enabled, final Tap opacity receives an additional factor:
+//
+//     nearFactor = clamp((-depth) / 8700, 0, 1)
+//
+// This makes the Tap progressively disappear as it approaches judgement depth.
+
+struct TimeRange {
+    int32_t startMs;
+    int32_t endMs;
+};
+
+bool tapFallsInsideSpecialPresentationRange(
+    int32_t tapTimeMs,
+    const std::vector<TimeRange>& ranges)
+{
+    for (const TimeRange& range : ranges) {
+        if (range.startMs <= tapTimeMs && tapTimeMs <= range.endMs)
+            return true;
+    }
+    return false;
+}
+
+float tapApproachVanishFactor(float depth)
 {
     return clamp01((-depth) / 8700.0f);
 }
 
-// hidegroup ultimately forces presentation opacity to zero. It is distinct from
+int specialTapOpacity(float depth, bool fadeOutOnApproach)
+{
+    float alpha = clamp01((depth + 9000.0f) / 1000.0f);
+
+    if (fadeOutOnApproach)
+        alpha *= tapApproachVanishFactor(depth);
+
+    return static_cast<int>(alpha * 255.0f);
+}
+
+// `fadeOutOnApproach` is a RECONSTRUCTED friendly name for the CONFIRMED effect.
+
+// hidegroup forces presentation opacity to zero. It is distinct from
 // LogicNote +0x54/noinput, which is an input gate.
 
 int applyHideGroupToOpacity(int opacity, bool hiddenByGroup)
@@ -184,22 +257,15 @@ int applyHideGroupToOpacity(int opacity, bool hiddenByGroup)
 }
 
 // ============================================================================
-// 5. CONFIRMED: Tap textured quad deforms with approach depth
+// 6. CONFIRMED: Tap textured quad deforms with approach depth
 // ============================================================================
 
-// The Tap child is not merely translated. Its local textured-quad geometry is
-// rewritten while approaching.
-//
-// Directly rechecked arithmetic:
+// The Tap child is not merely translated. Its textured-quad geometry changes:
 //
 //   speedFactor = clamp(effectiveSpatialBpm / 400, 1, 1.5)
 //   approach    = (-depth / 10000) * speedFactor
 //   longitudinalExtent ~= int(200 + 340 * approach)
 //   local half-width = 191
-//
-// The exact original member/vertex names are unavailable. The safe statement is
-// that the floor-note quad's local longitudinal geometry changes with approach
-// depth and effective spatial BPM; this is presentation, not judgement.
 
 float tapApproachFactor(float depth, float effectiveSpatialBpm)
 {
@@ -220,50 +286,34 @@ int tapQuadLongitudinalExtent(float depth, float effectiveSpatialBpm)
 static constexpr float kTapQuadHalfWidth = 191.0f;
 
 // ============================================================================
-// 6. CONFIRMED: Hold rendering is a stretched body, not tick sprites
+// 7. CONFIRMED: Hold rendering is one stretched body
 // ============================================================================
 
-// Normal body assets:
+// Normal:
 //     img/note_hold.png
 //     img/note_hold_dark.png
 //     img/note_hold_tomato.png
 //
-// Contact/highlight assets:
+// Contact/highlight:
 //     img/note_hold_hi.png
 //     img/note_hold_dark_hi.png
 //     img/note_hold_hi_tomato.png
 //
 // The Hold renderer stretches one body between current/start and end depth.
-// Horizontal placement uses the same NotePosition lane model as Tap.
-// The transient LogicHoldNote +0x64 current-contact latch selects highlight
-// presentation. It does not manufacture a separate sprite for every tick.
+// LogicHoldNote +0x64 current-contact selects highlight presentation.
 
 const char* chooseHoldTexture(bool contact, HoldStyle style)
 {
-    if (contact)
-        return highlightedHoldTextureFor(style);
-    return normalHoldTextureFor(style);
+    return contact
+        ? highlightedHoldTextureFor(style)
+        : normalHoldTextureFor(style);
 }
 
 // ============================================================================
-// 7. CONFIRMED: fadingholds is render feedback, not judgement timing
+// 8. CONFIRMED: fadingholds is visual feedback, not judgement timing
 // ============================================================================
 
-// The source timinggroup flag reaches LogicHoldNote. When disabled or current
-// contact exists, intensity is 1.0.
-//
-// For a fading Hold after start while contact is absent:
-//   - if the most recent long-event batch was LOST, intensity = 0.5
-//   - after a successful batch, locate the next unprocessed timing point:
-//       horizon = nextTick.time + 2*tickInterval
-//       intensity = clamp(0.5 + (horizon-now)/500, 0.5, 1.0)
-//
-// This factor multiplies ordinary opacity. It visualises long-note contact/event
-// health but does not change the event timestamps or ScoreState rules.
-
-float fadingHoldIntensity(
-    const LogicHoldNote& hold,
-    int nowMs)
+float fadingHoldIntensity(const LogicHoldNote& hold, int nowMs)
 {
     if (!hold.fadingHolds || hold.currentContact)
         return 1.0f;
@@ -289,76 +339,61 @@ float fadingHoldIntensity(
 }
 
 // ============================================================================
-// 8. CONFIRMED: ArcTap is rendered as a small 3D model
+// 9. CONFIRMED: ArcTap is a separate 3D-model renderer
 // ============================================================================
 
-// Surviving model assets include:
+// Resources include:
 //     models/tap_l.obj
 //     models/tap_d.obj
 //     models/tap_tomato.obj
 //     models/sfx_l.obj
 //     models/sfx_d.obj
 //
-// Parent Arc path construction precomputes the child's gameplay/path point.
-// RenderArcTapNote consumes that point. It is not the same floor-note sprite as
-// RenderTapNote even though LogicArcTapNote inherits LogicTapNote.
+// Parent Arc path construction precomputes the child point. RenderArcTapNote
+// consumes that point and uses camera mask 16.
 
 // ============================================================================
-// 9. CONFIRMED: Arc has TWO sampled polylines
+// 10. CONFIRMED: Arc has separate gameplay and render sampled paths
 // ============================================================================
 
 struct LogicArcSelectedRenderFields {
-    std::vector<Vec3> gameplaySamples; // actual vector begins around +0xE8
-    std::vector<Vec3> renderSamples;   // actual vector begins around +0x100
+    std::vector<Vec3> gameplaySamples; // actual vector around +0xE8
+    std::vector<Vec3> renderSamples;   // actual vector around +0x100
     float renderSamplingMultiplier;    // +0x118, friendly name
 };
 
-// Both vectors tessellate the same analytic Arc/easing curve.
+// Both sample the same analytic Arc.
 //
-// +0xE8 is consumed by gameplay/contact expected-position solving.
-// +0x100 is consumed by RenderArcNote.
+//     +0xE8  -> gameplay/contact expected-position solver
+//     +0x100 -> RenderArcNote tessellation
 //
-// Base sampling density:
+// Base density:
 //     nominal duration < 1000ms -> 14
 //     otherwise                 -> 7
 //
-// Let:
-//     D = effective path duration in seconds
-//     B = base density
-//     M = max(chart Arc optional float, 1.0)
+// With D=effective duration seconds, B=base density,
+// M=max(chart optional Arc float,1):
 //
-// Approximate native step families:
-//     gameplayStep ~= 1 / (D * B)
-//     renderStep   ~= 1 / (D * B * M)
+//     gameplayStep ~= 1 / (D*B)
+//     renderStep   ~= 1 / (D*B*M)
 //
-// M therefore increases visible tessellation smoothness without retessellating
-// the gameplay contact polyline.
+// M increases visual smoothness without changing gameplay contact sampling.
 
 float baseArcSamplingDensity(int durationMs)
 {
     return durationMs < 1000 ? 14.0f : 7.0f;
 }
 
-// Connected continuations can extend the predecessor's effective sampling end,
-// but membership already requires the seam gap to be <=9 ms; this is a tiny seam
-// normalisation, not arbitrary path concatenation.
-
 // ============================================================================
-// 10. CONFIRMED: visible Arc body = ribbon segments
+// 11. CONFIRMED: Arc visible body is a ribbon assembled from segments
 // ============================================================================
 
-// RenderArcNote walks adjacent points from LogicArcNote +0x100 and creates one
-// render segment per neighbouring sample pair.
+// RenderArcNote walks adjacent +0x100 samples. Each pair creates one ArcSegment
+// (~0x360 bytes) whose geometry forms four corners around the endpoints.
 //
-// Each segment owns two endpoints and generates four corners around the pair.
-// The visible Arc is therefore a ribbon/quad strip rather than a mathematical
-// line primitive.
-//
-// Surviving assets include:
+// Resources include:
 //     img/arc_body.png
 //     img/arc_body_hi.png
-//
-// ArcSegment allocation is roughly 0x360 bytes in this build.
 
 void rebuildArcRibbon(const LogicArcNote& arc)
 {
@@ -370,74 +405,56 @@ void rebuildArcRibbon(const LogicArcNote& arc)
 }
 
 // ============================================================================
-// 11. CONFIRMED: RenderArcNote child anatomy
+// 12. CONFIRMED: RenderArcNote is a small scene graph
 // ============================================================================
 
-// Selected scene-graph members established by independent consumers:
+// Selected fields:
 //
-//     RenderArcNote
-//       +0x2B8 : body-segment container
-//       +0x2C0 : ArcTap renderer container
-//       +0x2D0 : Arc cap sprite
-//                  + optional approach arrow
+//     +0x2B8 body-segment container
+//     +0x2C0 ArcTap renderer container
+//     +0x2D0 Arc cap sprite
+//                 + optional approach arrow
 //
-// Dedicated assets:
+// Assets:
 //     img/1080/arc_cap.png
 //     img/1080/approach_arrow.png
 //
-// The approach arrow uses scale around 1.5 and an observed order-like value 10.
-// Exact original purpose/name of that order value is UNRESOLVED.
+// Approach arrow scale ~1.5. An observed order-like integer 10 remains without
+// a recovered original semantic name.
 //
-// Arc particles are separate emitter nodes/resources rather than ribbon pieces:
-//     particle/particle_arc.plist         scale ~2.1
-//     Mirai light/conflict variants       scale ~1.9
+// Arc particles are separate emitter nodes:
+//     particle/particle_arc.plist                     scale ~2.1
+//     particle_arc_mirai_light/conflict variants     scale ~1.9
 
 // ============================================================================
-// 12. CONFIRMED: Arc angle metadata is a render transform
+// 13. CONFIRMED: timinggroup anglex/angley rotate visual Arc geometry
 // ============================================================================
 
-// Timinggroup integer angles are converted from tenths of a degree:
+// Timinggroup integer units are tenths of a degree:
 //
 //     radians = raw * PI / 180 / 10
 //
-// Runtime fields:
-//     LogicNote +0x58 -> angleX radians
-//     LogicNote +0x5C -> angleY radians
+// Runtime:
+//     LogicNote +0x58 = angleX radians -> X-axis rotation matrix
+//     LogicNote +0x5C = angleY radians -> Y-axis rotation matrix
 //
-// Arc rendering applies the Y-angle as a Y-axis matrix rotation and X-angle as
-// an X-axis matrix rotation to the visual geometry.
-//
-// The common touch unprojection path does NOT apply these same note-angle
-// matrices. Therefore anglex/angley are visual/spatial Arc transforms, not a
-// rotation of the player's raw screen-touch ray.
+// These matrices transform Arc render geometry downstream of ordinary touch-ray
+// construction. They do not rotate the common screen->world input ray.
 
 // ============================================================================
-// 13. CONFIRMED: Arc colour/opacity presentation modes
+// 14. CONFIRMED: Arc colour/opacity presentation
 // ============================================================================
 
 struct RGB8 { uint8_t r, g, b; };
 
-static constexpr RGB8 kGoldTrace      = {244, 185, 66};
-static constexpr RGB8 kDesignantPink  = {240,  41, 97};
-static constexpr RGB8 kRejectRed      = {230,  50, 50};
+static constexpr RGB8 kGoldTrace     = {244, 185, 66};
+static constexpr RGB8 kDesignantPink = {240,  41, 97};
+static constexpr RGB8 kRejectRed     = {230,  50, 50};
 
-// tracecol:
-// The TimingGroup parser stores six hexadecimal RGB digits. In the render
-// consumers traced in this build, presence of that metadata selects a dedicated
-// gold trace branch and texture:
-//     img/trace_body_gold.png
-//     RGB(244,185,66)
-//
-// IMPORTANT LIMITATION:
-// No traced consumer in this slice actually reads arbitrary stored R/G/B values
-// for arbitrary custom colour output. Do not claim general RRGGBB rendering from
-// the parser merely because the source data stores three channels.
-
-// DESIGNANT / Arc body mode 2:
-//     visual colour family RGB(240,41,97)
-//     root opacity    ~= clamp(globalFactor * 125)
-//     segment opacity ~= clamp(globalFactor * 225)
-//     cap uses the same colour family
+// tracecolRRGGBB is parsed and propagated into mode-1 Arc metadata. In the traced
+// render consumer for this build, metadata presence selects a dedicated gold
+// trace branch using img/trace_body_gold.png / RGB(244,185,66). No traced render
+// consumer here reads arbitrary stored R/G/B to produce arbitrary custom tint.
 
 int designantRootOpacity(float factor)
 {
@@ -449,56 +466,38 @@ int designantSegmentOpacity(float factor)
     return std::clamp(static_cast<int>(factor * 225.0f), 0, 255);
 }
 
-// LogicColor rejection feedback is presentation state separate from the actual
-// touch-ownership lockout. While active, judged Arc presentation blends toward
-// RGB(230,50,50).
+// DESIGNANT mode-2 uses RGB(240,41,97), with separate root and ribbon opacity.
+// LogicColor rejection feedback is separate presentation state and blends judged
+// Arc presentation toward RGB(230,50,50).
 
 // ============================================================================
-// 14. CONFIRMED: common opacity interface and hidegroup
+// 15. CONFIRMED: hidegroup/noinput separation
 // ============================================================================
 
-// Render-note virtuals around the established +0x460/+0x470 slots behave as
-// opacity get/set across independent consumers.
+// Common render virtuals around the observed +0x460/+0x470 slots behave as
+// opacity get/set.
 //
-// `hidegroup` writes LogicNote +0x55 and ArcTap children as well. Render updates
-// consume this flag and suppress presentation. Input paths continue to use
-// LogicNote +0x54 (`noinput`) instead.
-//
-// Thus:
-//     noinput   -> player input eligibility
-//     hidegroup -> visual visibility
+//     LogicNote +0x54 / noinput   -> player-input eligibility
+//     LogicNote +0x55 / hidegroup -> presentation visibility
 
 // ============================================================================
-// 15. CONFIRMED: track widening presentation does not move lane coordinates
+// 16. CONFIRMED: track widening/masking are presentation over fixed lanes
 // ============================================================================
 
-// `enwidenlanes` activates pre-existing outer gameplay lane IDs 1 and 6. Lane
-// centres remain fixed. Renderer resources include:
+// `enwidenlanes` activates pre-existing gameplay lanes 1 and 6. Lane centres do
+// not move. Renderer assets include:
 //     img/track_extralane_light.png
 //     img/track_extralane_dark.png
 //
-// Track presentation can be reshaped/cut by native `track_custom_mask_shader`.
-// Its uniforms include:
+// `track_custom_mask_shader` includes uniforms:
 //     z_clip, texture_mask, mask_inverse, texture_height,
 //     track_width, fixed_x_pos, model_width
 //
-// The shader calculates fragment position in track space and discards/makes
-// transparent pixels based on the mask. This changes visible track artwork, not
-// the already-confirmed floor-lane centres.
+// It clips visible track fragments without rewriting gameplay lane geometry.
 
 // ============================================================================
-// 16. CONFIRMED: enwidencamera has renderer compensation
+// 17. CONFIRMED: enwidencamera presentation compensation
 // ============================================================================
-
-// Gameplay camera-widen state runs from 1.0 to 1.5. A presentation compensation
-// factor is:
-//
-//     factor = 1 - (cameraWidenScale - 1) * (2/3)
-//
-// A traced Tap branch applies approximately factor*130 as opacity to auxiliary
-// child nodes while leaving child index 0/main note presentation separate.
-// This was previously easy to misread as geometry scaling; the consumer proves
-// it is opacity compensation.
 
 float cameraWidenPresentationFactor(float cameraWidenScale)
 {
@@ -512,8 +511,11 @@ int cameraWidenTapAuxOpacity(float cameraWidenScale)
         cameraWidenPresentationFactor(cameraWidenScale) * 130.0f);
 }
 
+// This factor is applied as opacity to auxiliary Tap children (starting at child
+// index 1); it is not a lane-coordinate or note-position rescale.
+
 // ============================================================================
-// 17. CONFIRMED: generic gameplay SceneControl visual branches
+// 18. CONFIRMED: generic SceneControl presentation branches
 // ============================================================================
 
 enum class SceneControlType : int32_t {
@@ -527,70 +529,41 @@ enum class SceneControlType : int32_t {
     Unknown       = 7,
 };
 
-// Types 0..3 are prepared visual effects. hidegroup is group presentation state.
-// Types 5/6 also affect gameplay-space/input state and were reconstructed in the
-// runtime layer.
-
-// trackdisplay:
-//     current value starts at 255
-//     100-step quadratic interpolation
-//     p = step/100
-//     value = start + (target-start)*p^2
-//     scheduler interval = floatParameter/100
-//     coordinated background darkening uses img/bg/bg_darken.png
-
 int trackDisplayStep(int start, int target, int step)
 {
     const float p = clamp01(static_cast<float>(step) / 100.0f);
-    return static_cast<int>(
-        start + (target - start) * p * p);
+    return static_cast<int>(start + (target - start) * p * p);
 }
 
-// redline:
-//     creates a fresh img/redline.png sprite
-//     fast fade-in/pulse animation
-//     floatParameter controls lifetime before cleanup
-//     runtime SceneControl instance ID gives unique scheduler key
-
-// arcahvdistort:
-//     prepared node name ARCAHV_DISTORT
-//     resource img/bg/arcahv-srt.png
-//     FadeTo(duration=floatParameter, opacity=low8(intParameter))
-
-// arcahvdebris:
-//     prepared node name ARCAHV_DEBRIS
-//     resource img/bg/arcahv-debris.png
-//     prepared animated child/container is faded as a whole
+// TrackDisplay: 100-step quadratic opacity/presentation transition; background
+// darkening uses img/bg/bg_darken.png.
+// RedLine: fresh img/redline.png sprite, pulse, timed removal.
+// ArcHVDistort: prepared ARCAHV_DISTORT / img/bg/arcahv-srt.png FadeTo.
+// ArcHVDebris: prepared ARCAHV_DEBRIS / img/bg/arcahv-debris.png FadeTo.
 
 // ============================================================================
-// 18. CONFIRMED: CameraController movement animation
+// 19. CONFIRMED: CameraController contains two synchronized cocos2d::Camera's
 // ============================================================================
 
-// Retained type name:
-//   CameraController::animateMovingCameraTo(cocos2d::Vec3, float)::$_0
+// Later disassembly resolves the old anonymous +0x2A8/+0x2B0 nodes.
+// CameraController derives from cocos2d::Node and creates two actual Camera
+// children.
 //
-// Direct disassembly resolves the method's core behaviour.
+//     +0x2A8 Camera*, camera flag 4,  near=1, far=10000
+//     +0x2B0 Camera*, camera flag 16, near=1, far=9000
 //
-// CameraController owns two scene/camera-like nodes at approximately +0x2A8 and
-// +0x2B0. Their exact high-level identities are UNRESOLVED, but the method moves
-// BOTH to the same target Vec3.
+//     +0x2B8 shared look-at target Vec3
+//     +0x2C4 shared camera-position Vec3
 //
-// duration == 0:
-//     set target position on both immediately.
-//
-// duration != 0:
-//     scheduler key = "moveCamera"
-//     stepCount ~= int(duration * 60)
-//     interval  = duration / stepCount   (~1/60 second)
-//
-// The callback repeatedly reads each coordinate of the current position, then
-// uses a quadratic progress value. Readable equivalent for each coordinate:
-//
-//     p = currentStep / totalSteps
-//     next = current + (target - current) * p^2
-//
-// It applies the resulting Vec3 to both controller-owned nodes and increments
-// the step counter.
+// Both cameras receive the same position and look-at target/up vector. They are
+// synchronized viewpoints serving different camera-mask render groups.
+
+struct CameraControllerSelected {
+    cocos2d::Camera* camera4;   // +0x2A8
+    cocos2d::Camera* camera16;  // +0x2B0
+    Vec3 lookAtTarget;          // +0x2B8
+    Vec3 cameraPosition;        // +0x2C4
+};
 
 float moveCameraCoordinate(float current, float target, float progress)
 {
@@ -598,13 +571,14 @@ float moveCameraCoordinate(float current, float target, float progress)
 }
 
 void animateMovingCameraTo(
-    CameraController& controller,
+    CameraControllerSelected& controller,
     Vec3 target,
     float duration)
 {
     if (duration == 0.0f) {
-        setPosition(controller.nodeA_2A8, target);
-        setPosition(controller.nodeB_2B0, target);
+        controller.camera4->setPosition3D(target);
+        controller.camera16->setPosition3D(target);
+        controller.cameraPosition = target;
         return;
     }
 
@@ -617,46 +591,58 @@ void animateMovingCameraTo(
                 static_cast<float>(step) /
                 static_cast<float>(totalSteps);
 
-            const Vec3 current = positionOf(controller.nodeA_2A8);
+            const Vec3 current = controller.cameraPosition;
             const Vec3 next {
                 moveCameraCoordinate(current.x, target.x, p),
                 moveCameraCoordinate(current.y, target.y, p),
                 moveCameraCoordinate(current.z, target.z, p),
             };
 
-            setPosition(controller.nodeA_2A8, next);
-            setPosition(controller.nodeB_2B0, next);
+            controller.cameraPosition = next;
+            controller.camera4->setPosition3D(next);
+            controller.camera16->setPosition3D(next);
             ++step;
         });
 }
 
-// The source CameraControl's second Vec3 remains strongly reconstructed as the
-// separate orientation/rotation family, but this section does not invent an
-// original method name for that path without equivalent retained-symbol proof.
+// No separate Arcaea-specific camera-depth/priority write was found after camera
+// creation. Their gameplay-facing distinction is camera flag/mask and far plane.
 
 // ============================================================================
-// 19. CONFIRMED: GameScene render owns an explicit GL-state boundary
+// 20. CONFIRMED: GameScene::render queues an explicit GL-state boundary
 // ============================================================================
 
-// A std::function/lambda whose retained C++ type is scoped directly inside:
+// Retained lambda type:
 //
 //     GameScene::render(Renderer*, const Mat4&, const Mat4*)::$_6
 //
-// has a callback body that performs exactly:
+// Callback body:
 //
 //     glDisable(GL_DEPTH_TEST);     // 0x0B71
 //     glDisable(GL_STENCIL_TEST);   // 0x0B90
 //     glDepthMask(false);
 //     glDisable(GL_BLEND);          // 0x0BE2
 //
-// Therefore the gameplay scene explicitly brackets/resets low-level GL state
-// rather than allowing its 3D/depth/blend state to leak indefinitely into later
-// Cocos rendering.
+// The later refinement traces the owning cocos2d::CustomCommand:
 //
-// UNRESOLVED:
-// The exact position of this custom command relative to every other GameScene
-// command has not been completely reconstructed, so this file does not claim a
-// pixel-perfect global command ordering from that callback alone.
+//     global order = 0
+//     non-3D command flags
+//
+// GameScene first allows normal scene traversal to queue gameplay draw commands,
+// then adds this CustomCommand to the renderer. Cocos classifies it into the
+// zero-global-order 2D command queue. Thus this is a real queued render boundary,
+// not merely cleanup performed after Renderer has already finished.
+//
+// High-level ordering family:
+//
+//     negative global-order commands
+//     opaque 3D
+//     transparent 3D
+//     zero global-order commands  <-- GameScene cleanup command lives here
+//     positive global-order commands
+//
+// This cleanly prevents gameplay 3D/depth/stencil/blend state from leaking into
+// later positive-order presentation/UI commands.
 
 void gameSceneRenderStateResetCallback()
 {
@@ -666,70 +652,76 @@ void gameSceneRenderStateResetCallback()
     glDisable(GL_BLEND);
 }
 
+void queueGameSceneRenderStateBoundary(
+    cocos2d::Renderer& renderer,
+    const cocos2d::Mat4& transform)
+{
+    cocos2d::CustomCommand command;
+    command.init(0.0f, transform, 0); // reconstructed signature shape
+    command.func = gameSceneRenderStateResetCallback;
+    renderer.addCommand(&command);
+}
+
 // ============================================================================
-// 20. RECONSTRUCTED complete gameplay-render pipeline
+// 21. RECONSTRUCTED complete gameplay-render pipeline
 // ============================================================================
 
 /*
- * Logic update has already calculated:
- *   - current note depth/path state
- *   - Hold/Arc contact state
- *   - Arc sampled paths/current point
- *   - hidden/group flags
- *   - LogicColor feedback state
- *   - SceneControl/widening state
+ * Logic update computes positions, contact, paths and visibility.
  *
- *                         |
- *                         v
- *              LogicNote <-> RenderNote
- *                         |
- *          +--------------+------------------+
- *          |              |                  |
- *          v              v                  v
- *        Tap/Hold       Arc/ArcTap        Track/scene FX
- *          |              |                  |
- *   position/quad/    dense render      masks/fades/
- *   texture/alpha      samples ->        extra lanes/
- *                       ribbons          visual controls
- *          \              |                  /
- *           \             |                 /
- *                         v
- *                    Cocos scene graph
- *                         |
- *                         v
- *              CameraController transforms
- *                         |
- *                         v
- *                  cocos2d::Renderer
- *                         |
- *                         v
- *          GameScene custom render-state boundary
+ *                LogicNote <-> RenderNote
+ *                           |
+ *              camera-mask assignment
+ *                   /               \
+ *                  v                 v
+ *              mask 4            mask 16
+ *                  \                 /
+ *                   \               /
+ *                    v             v
+ *                synchronized CameraController
+ *                  Camera4 / Camera16
+ *                           |
+ *                    Cocos scene traversal
+ *                           |
+ *                   gameplay draw commands
+ *                           |
+ *                 zero-order cleanup command
+ *                           |
+ *            depth/stencil/depth-write/blend disabled
+ *                           |
+ *              later positive-order presentation/UI
+ *
+ * Separately inside RenderNote families:
+ *   Tap  -> position, deforming quad, horizon/special fade
+ *   Hold -> stretched body + contact/fadingholds presentation
+ *   Arc  -> dense render samples -> ribbon segment scene graph
+ *   ArcTap -> separate 3D child model on camera-mask 16
+ *   Track/SceneControl -> extra lanes, masks, fades and effect nodes
  */
 
-// The critical rule is one-way responsibility:
-//   logic decides where/what state the note is in;
-//   renderer decides how that state is drawn.
+// Critical responsibility rule:
+//     Logic decides where a gameplay object is and what state it is in.
+//     Renderer decides how that state is presented.
 //
-// Renderer-side visual feedback never replaces ScoreState judgement.
+// Renderer-side effects never replace ScoreState judgement.
 
 // ============================================================================
-// 21. UNRESOLVED / intentionally deferred
+// 22. Remaining narrow unresolved details
 // ============================================================================
 
-// These do NOT block the fundamental gameplay-render model:
+// These do NOT block the gameplay-render architecture:
 //
-// 1. Exact global z-order between every top-level Tap/Hold/Arc/track/effect node.
-//    Internal Arc body/ArcTap/cap containers are confirmed, but a complete global
-//    draw-order table was not recovered here.
-// 2. Exact original identity/name of CameraController +0x2A8 and +0x2B0 nodes.
-// 3. Exact original method/name for CameraControl's second Vec3 orientation path.
-// 4. Exact original meaning of RenderTapNote byte +0x2B4 selecting the extra
-//    near-depth opacity multiplier.
-// 5. Whether any untraced native consumer uses arbitrary tracecol RGB values;
-//    traced consumers select a fixed gold branch on metadata presence.
-// 6. Pixel-perfect artistic action nesting for every scenecontrol/particle.
-// 7. Full generic Cocos renderer internals unrelated to Arcaea gameplay.
+// 1. Exact original name of the higher-level render/special mode enum whose
+//    observed values 1 and 6 build Tap fade-out time ranges.
+// 2. Exact original method/name for CameraControl's second Vec3 orientation path.
+// 3. Whether an untraced consumer displays arbitrary tracecol RRGGBB rather than
+//    using metadata presence to choose the confirmed gold branch.
+// 4. Pixel-perfect artistic Cocos Action nesting and generic renderer internals.
+// 5. Same-priority Camera 4 vs Camera 16 traversal details belong to Cocos unless
+//    a later Arcaea-specific camera priority write is discovered.
 //
-// Those are implementation/polish details, not missing core rendering mechanics.
+// Gameplay HUD/UI is NOT an unresolved part of this section. It is intentionally
+// separated into Deep Dive Section 05 because the gameplay simulation and note
+// renderer do not require the HUD overlay to function.
 
 } // namespace reconstructed
